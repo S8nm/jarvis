@@ -17,6 +17,37 @@
 
     "memory_auto_extract": true,
 
+    "anthropic_api_key": "",
+    "claude_model": "claude-sonnet-4-5-20250929",
+
+    "router": {
+        "enabled": true,
+        "complex_word_threshold": 80,
+        "simple_word_threshold": 15
+    },
+
+    "claude_budget": {
+        "daily_usd": 5.00,
+        "monthly_usd": 50.00,
+        "warn_threshold": 0.80
+    },
+
+    "rate_limits": {
+        "voice": 5,
+        "text": 15,
+        "telegram": 10
+    },
+
+    "tool_timeouts": {
+        "pi.*": 60,
+        "claude.*": 120,
+        "vision.*": 45
+    },
+
+    "resilience": {
+        "pi_health_check_interval": 60
+    },
+
     "personaplex": {
         "enabled": true,
         "host": "localhost",
@@ -25,6 +56,14 @@
         "bridge_port": 8999,
         "voice": "NATM0.pt",
         "persona": "You are JARVIS, a highly capable AI assistant. You speak with a British accent and are knowledgeable, witty, and efficient. Be concise and helpful."
+    },
+
+    "telegram": {
+        "bot_token": "8598955435:AAFgSSxikIfAXf2TponlybLSy_Qnu3_NwtY",
+        "api_id": 30745628,
+        "api_hash": "ad244f70a12fb829021bca2d8c50db4e",
+        "allowed_user_ids": [7679851764],
+        "notify_on_start": true
     },
 
     "pi": {
