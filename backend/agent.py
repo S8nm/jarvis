@@ -18,7 +18,11 @@ from typing import Optional, Callable
 
 from config import WAKE_SENSITIVITY, OLLAMA_MODEL, MAX_CONTEXT_MESSAGES, PERSONAPLEX_ENABLED
 from llm.client import LLMClient
+from llm.claude_client import ClaudeLLMClient
 from llm.prompts import get_greeting_prompt, build_tool_result_messages
+from llm.router import IntentRouter, RouteDecision
+from resilience import SlidingWindowRateLimiter
+from resilience.cost_tracker import get_cost_tracker
 from speech.stt import SpeechToText
 from speech.tts import TextToSpeech
 from speech.wake_word import WakeWordDetector
@@ -49,6 +53,15 @@ class JarvisAgent:
         self.stt = SpeechToText()
         self.tts = TextToSpeech()
         self.wake_detector: Optional[WakeWordDetector] = None
+
+        # Router + Claude backend + rate limiter
+        try:
+            self._cost_tracker = get_cost_tracker()
+        except Exception:
+            self._cost_tracker = None
+        self._router = IntentRouter(cost_tracker=self._cost_tracker)
+        self._claude_client = ClaudeLLMClient(cost_tracker=self._cost_tracker)
+        self._rate_limiter = SlidingWindowRateLimiter()
 
         # Broadcast function set by main.py to send to all WebSocket clients
         self._broadcast: Optional[Callable] = None
@@ -226,7 +239,7 @@ class JarvisAgent:
                     })
 
                     # -- THINKING + EXECUTING + SPEAKING --
-                    await self._process_text(result.text)
+                    await self._process_text(result.text, source="voice")
 
                     # Brief pause before listening again
                     await asyncio.sleep(0.3)
@@ -314,118 +327,208 @@ class JarvisAgent:
 
         await self._process_text(text)
 
-    async def _process_text(self, text: str):
-        """Process user text through LLM, execute any tool calls, and respond."""
+    async def _process_text(self, text: str, source: str = "text"):
+        """Process user text through router -> appropriate LLM backend -> tools -> respond."""
         await self._set_state(AgentState.THINKING)
 
-        # -- Step 1: Get LLM response (may contain tool calls) --
+        # -- Rate limit check --
+        allowed, limit_info = self._rate_limiter.check(source)
+        if not allowed:
+            logger.warning(f"Rate limited ({source}): {limit_info}")
+            await self._broadcast_message("rate_limited", limit_info)
+            msg = "I'm receiving requests quite rapidly, sir. Please allow me a moment."
+            self.conversation_log.append({
+                "role": "assistant", "content": msg,
+                "timestamp": datetime.now().isoformat()
+            })
+            await self._broadcast_message("response_complete", {
+                "text": msg, "conversation": self.conversation_log
+            })
+            return
+
+        # -- Route the query --
+        decision = await self._router.classify(text, self.conversation_log)
+        logger.info(
+            f"Route: {decision.target} | {decision.intent_type} | "
+            f"conf={decision.confidence:.2f} | {decision.reason} "
+            f"({decision.classification_ms:.1f}ms)"
+        )
+        await self._broadcast_message("route_decision", {
+            "target": decision.target,
+            "intent_type": decision.intent_type,
+            "confidence": decision.confidence,
+            "reason": decision.reason,
+            "classification_ms": decision.classification_ms,
+            "tool_hint": decision.tool_hint,
+        })
+
+        # -- Dispatch based on route --
+        if decision.target == "tool_direct":
+            final_response, tools_used = await self._handle_direct_tool(text, decision)
+        elif decision.target == "claude":
+            final_response, tools_used = await self._handle_claude_response(text)
+        else:
+            final_response, tools_used = await self._handle_ollama_response(text)
+
+        # -- Shared: update conversation log --
+        log_entry = {
+            "role": "assistant",
+            "content": final_response,
+            "timestamp": datetime.now().isoformat(),
+        }
+        if tools_used:
+            log_entry["tools_used"] = tools_used
+        self.conversation_log.append(log_entry)
+
+        # -- Shared: broadcast completion --
+        complete_data = {
+            "text": final_response,
+            "conversation": self.conversation_log,
+            "route": decision.target,
+        }
+        if tools_used:
+            complete_data["tools_used"] = tools_used
+        await self._broadcast_message("response_complete", complete_data)
+
+        # -- Shared: TTS (skip if PersonaPlex handles voice) --
+        if not self.personaplex_active:
+            await self._set_state(AgentState.SPEAKING)
+            await self.tts.speak(final_response)
+
+        # -- Shared: dashboard update after tool use --
+        if tools_used:
+            await self._send_dashboard_update()
+
+        # -- Post-interaction: memory extraction (async, non-blocking) --
+        asyncio.create_task(self._extract_memories(text, final_response))
+
+        # -- Post-interaction: conversation management --
+        max_log = MAX_CONTEXT_MESSAGES * 3
+        if len(self.conversation_log) > max_log:
+            self.conversation_log = self.conversation_log[-MAX_CONTEXT_MESSAGES:]
+            logger.info(f"Hard-trimmed conversation_log to {MAX_CONTEXT_MESSAGES} entries")
+        elif len(self.conversation_log) > MAX_CONTEXT_MESSAGES + 10:
+            asyncio.create_task(self._maybe_summarize_conversation())
+
+    # ──────────────────────────── Route Handlers ────────────────────────────
+
+    async def _handle_ollama_response(self, text: str) -> tuple[str, list[str]]:
+        """Handle query via Ollama (existing path, fast/free)."""
         full_response = ""
         async for token in self.llm.stream_response(text):
             full_response += token
             await self._broadcast_message("response_chunk", {"token": token})
 
-        # -- Step 2: Check for tool calls --
         tool_calls = parse_tool_calls(full_response)
+        if not tool_calls:
+            return full_response, []
 
-        if tool_calls:
-            # -- EXECUTING tools --
-            await self._set_state(AgentState.EXECUTING)
+        # Execute tools and summarize via Ollama
+        tools_used, tool_results = await self._execute_tool_calls(tool_calls)
+        summary = await self._summarize_tool_results(
+            text, full_response, tool_results, backend="ollama"
+        )
+        return summary or strip_tool_blocks(full_response), tools_used
 
-            # Get the natural-language part (before/around tool blocks)
-            natural_response = strip_tool_blocks(full_response)
+    async def _handle_claude_response(self, text: str) -> tuple[str, list[str]]:
+        """Handle query via Claude (complex reasoning, analysis, planning)."""
+        full_response = ""
+        async for token in self._claude_client.stream_response(text, self.conversation_log):
+            full_response += token
+            await self._broadcast_message("response_chunk", {"token": token})
 
-            tool_results = []
-            for tc in tool_calls:
-                tool_name = tc["tool"]
-                tool_args = tc.get("args", {})
+        tool_calls = parse_tool_calls(full_response)
+        if not tool_calls:
+            # Sync to Ollama history so it stays aware of Claude turns
+            self.llm.conversation_history.append({"role": "user", "content": text})
+            self.llm.conversation_history.append({"role": "assistant", "content": full_response})
+            return full_response, []
 
-                await self._broadcast_message("tool_executing", {
-                    "tool": tool_name,
-                    "args": tool_args
-                })
+        # Execute tools, summarize via Ollama (free) to save Claude costs
+        tools_used, tool_results = await self._execute_tool_calls(tool_calls)
+        summary = await self._summarize_tool_results(
+            text, full_response, tool_results, backend="ollama"
+        )
+        final = summary or strip_tool_blocks(full_response)
 
-                result = await execute_tool(tool_name, tool_args)
-                tool_results.append({"tool": tool_name, "result": result})
+        # Sync to Ollama history
+        self.llm.conversation_history.append({"role": "user", "content": text})
+        self.llm.conversation_history.append({"role": "assistant", "content": final})
+        return final, tools_used
 
-                await self._broadcast_message("tool_result", {
-                    "tool": tool_name,
-                    "result": result
-                })
+    async def _handle_direct_tool(self, text: str, decision: RouteDecision) -> tuple[str, list[str]]:
+        """Handle direct tool execution (skip LLM entirely, router matched a tool)."""
+        tool_name = decision.tool_hint
+        tool_args = decision.tool_args_hint
 
-            # -- Step 3: Send tool results back to LLM for summary --
-            await self._set_state(AgentState.THINKING)
+        await self._set_state(AgentState.EXECUTING)
+        await self._broadcast_message("tool_executing", {
+            "tool": tool_name, "args": tool_args
+        })
 
-            summary_messages = build_tool_result_messages(
-                self.conversation_log,
-                text,
-                full_response,
-                tool_results
-            )
+        result = await execute_tool(tool_name, tool_args)
+        await self._broadcast_message("tool_result", {
+            "tool": tool_name, "result": result
+        })
 
-            # Stream the summary response
-            summary_response = ""
-            # Clear the previous stream to start fresh summary
-            await self._broadcast_message("response_clear", {})
+        # Use Ollama for a brief natural-language summary (fast, free)
+        summary = await self._summarize_tool_results(
+            text, "I'll check that for you, sir.",
+            [{"tool": tool_name, "result": result}], backend="ollama"
+        )
+        return summary or f"Done, sir. The {tool_name} tool has completed.", [tool_name]
 
-            async for token in self.llm.stream_response_from_messages(summary_messages, save_to_history=True):
-                summary_response += token
+    # ──────────────────────────── Shared Helpers ────────────────────────────
+
+    async def _execute_tool_calls(self, tool_calls: list[dict]) -> tuple[list[str], list[dict]]:
+        """Execute tool calls and broadcast progress."""
+        await self._set_state(AgentState.EXECUTING)
+
+        tools_used = []
+        tool_results = []
+        for tc in tool_calls:
+            tool_name = tc["tool"]
+            tool_args = tc.get("args", {})
+            tools_used.append(tool_name)
+
+            await self._broadcast_message("tool_executing", {
+                "tool": tool_name, "args": tool_args
+            })
+
+            result = await execute_tool(tool_name, tool_args)
+            tool_results.append({"tool": tool_name, "result": result})
+
+            await self._broadcast_message("tool_result", {
+                "tool": tool_name, "result": result
+            })
+
+        return tools_used, tool_results
+
+    async def _summarize_tool_results(self, user_text: str, llm_response: str,
+                                       tool_results: list[dict],
+                                       backend: str = "ollama") -> str:
+        """Send tool results back to an LLM for natural-language summary."""
+        await self._set_state(AgentState.THINKING)
+
+        summary_messages = build_tool_result_messages(
+            self.conversation_log, user_text, llm_response, tool_results
+        )
+
+        await self._broadcast_message("response_clear", {})
+
+        summary = ""
+        if backend == "claude":
+            async for token in self._claude_client.stream_response_from_messages(summary_messages):
+                summary += token
+                await self._broadcast_message("response_chunk", {"token": token})
+        else:
+            async for token in self.llm.stream_response_from_messages(
+                summary_messages, save_to_history=True
+            ):
+                summary += token
                 await self._broadcast_message("response_chunk", {"token": token})
 
-            # Use summary as the final response
-            final_response = summary_response if summary_response else natural_response
-
-            # Update conversation log with the final response
-            self.conversation_log.append({
-                "role": "assistant",
-                "content": final_response,
-                "timestamp": datetime.now().isoformat(),
-                "tools_used": [tc["tool"] for tc in tool_calls]
-            })
-
-            await self._broadcast_message("response_complete", {
-                "text": final_response,
-                "conversation": self.conversation_log,
-                "tools_used": [tc["tool"] for tc in tool_calls]
-            })
-
-            # -- SPEAKING (skip if PersonaPlex handles voice) --
-            if not self.personaplex_active:
-                await self._set_state(AgentState.SPEAKING)
-                await self.tts.speak(final_response)
-
-            # Send dashboard update after tool use
-            await self._send_dashboard_update()
-
-        else:
-            # No tools — normal conversation response
-            self.conversation_log.append({
-                "role": "assistant",
-                "content": full_response,
-                "timestamp": datetime.now().isoformat()
-            })
-
-            await self._broadcast_message("response_complete", {
-                "text": full_response,
-                "conversation": self.conversation_log
-            })
-
-            # -- SPEAKING (skip if PersonaPlex handles voice) --
-            if not self.personaplex_active:
-                await self._set_state(AgentState.SPEAKING)
-                await self.tts.speak(full_response)
-
-        # -- Post-interaction: memory extraction (async, non-blocking) --
-        asyncio.create_task(self._extract_memories(text, full_response))
-
-        # -- Post-interaction: conversation management --
-        # Hard cap: prevent unbounded growth even if summarization fails
-        max_log = MAX_CONTEXT_MESSAGES * 3  # 60 entries max
-        if len(self.conversation_log) > max_log:
-            self.conversation_log = self.conversation_log[-MAX_CONTEXT_MESSAGES:]
-            logger.info(f"Hard-trimmed conversation_log to {MAX_CONTEXT_MESSAGES} entries")
-        # Soft trigger: try to summarize gracefully when getting long
-        elif len(self.conversation_log) > MAX_CONTEXT_MESSAGES + 10:
-            asyncio.create_task(self._maybe_summarize_conversation())
+        return summary
 
     async def _extract_memories(self, user_input: str, assistant_response: str):
         """Extract memorable facts from the conversation turn (runs in background).
@@ -603,9 +706,12 @@ class JarvisAgent:
             logger.warning(f"Could not get system metrics: {e}")
             system_metrics = {}
 
+        claude_ok = await self._claude_client.check_health()
+
         return {
             "state": self.state.value,
             "ollama_connected": ollama_ok,
+            "claude_connected": claude_ok,
             "stt_ready": self.stt._model is not None,
             "tts_ready": self.tts._synthesize_fn is not None,
             "wake_word_active": self.wake_detector is not None and self.wake_detector._running,
@@ -615,4 +721,7 @@ class JarvisAgent:
             "text_queue_size": self._text_queue.qsize(),
             "dashboard": dashboard,
             "system": system_metrics,
+            "router": self._router.get_stats(),
+            "claude": self._claude_client.get_stats(),
+            "rate_limiter": self._rate_limiter.get_status(),
         }
