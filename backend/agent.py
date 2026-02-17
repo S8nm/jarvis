@@ -375,6 +375,7 @@ class JarvisAgent:
             "role": "assistant",
             "content": final_response,
             "timestamp": datetime.now().isoformat(),
+            "route": decision.target,
         }
         if tools_used:
             log_entry["tools_used"] = tools_used

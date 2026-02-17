@@ -1,14 +1,14 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, memo } from 'react';
 import ShinyText from './ShinyText';
+import { formatMessage } from '../utils/formatMessage';
 
 /**
  * Conversation Log — scrollable chat history between user and Jarvis.
- * Shows streaming text with a typing cursor effect.
+ * Shows streaming text with typing cursor, markdown formatting, and improved empty state.
  */
-export default function ConversationLog({ conversation, streamingText, isStreaming }) {
+const ConversationLog = memo(function ConversationLog({ conversation, streamingText, isStreaming }) {
     const scrollRef = useRef(null);
 
-    // Auto-scroll to bottom on new messages or when streaming ends
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -18,34 +18,35 @@ export default function ConversationLog({ conversation, streamingText, isStreami
     return (
         <div className="conversation-container glass-panel">
             <div className="panel-header">
-                <span className="indicator" />
+                <span className="indicator" aria-hidden="true" />
                 <ShinyText speed={5}>Communication Log</ShinyText>
             </div>
 
-            <div className="conversation-log" ref={scrollRef}>
+            <div className="conversation-log" ref={scrollRef} role="log" aria-live="polite" aria-label="Conversation history">
                 {conversation.length === 0 && !isStreaming && (
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        height: '100%',
-                        color: 'var(--text-dim)',
-                        fontStyle: 'italic',
-                        fontSize: '0.85rem'
-                    }}>
-                        Awaiting communication, sir.
+                    <div className="empty-state">
+                        <div className="empty-state-icon" aria-hidden="true">◈</div>
+                        <div className="empty-state-text">Awaiting communication, sir.</div>
+                        <div className="empty-state-hint">
+                            Press <kbd>/</kbd> to type or <kbd>Space</kbd> to talk
+                        </div>
                     </div>
                 )}
 
                 {conversation.map((msg, i) => (
-                    <div key={msg.timestamp ? `${msg.timestamp}-${i}` : i} className={`message ${msg.role}`}>
+                    <div key={msg.timestamp ? `${msg.timestamp}-${i}` : i} className={`message ${msg.role}`} role="article">
                         <div className="message-bubble">
-                            {msg.content}
+                            {msg.role === 'assistant' ? formatMessage(msg.content) : msg.content}
                         </div>
                         <div className="message-meta">
                             <span className="message-label">
                                 {msg.role === 'user' ? 'You' : 'J.A.R.V.I.S.'}
                             </span>
+                            {msg.route && (
+                                <span className={`route-badge route-${msg.route}`}>
+                                    {msg.route === 'tool_direct' ? 'direct' : msg.route}
+                                </span>
+                            )}
                             {msg.timestamp && (
                                 <span>{formatTime(msg.timestamp)}</span>
                             )}
@@ -53,12 +54,11 @@ export default function ConversationLog({ conversation, streamingText, isStreami
                     </div>
                 ))}
 
-                {/* Streaming response */}
                 {isStreaming && streamingText && (
-                    <div className="message assistant">
+                    <div className="message assistant" role="article">
                         <div className="message-bubble">
-                            {streamingText}
-                            <span className="typing-cursor" />
+                            {formatMessage(streamingText)}
+                            <span className="typing-cursor" aria-label="JARVIS is typing" />
                         </div>
                         <div className="message-meta">
                             <span className="message-label">J.A.R.V.I.S.</span>
@@ -69,7 +69,9 @@ export default function ConversationLog({ conversation, streamingText, isStreami
             </div>
         </div>
     );
-}
+});
+
+export default ConversationLog;
 
 function formatTime(isoString) {
     try {

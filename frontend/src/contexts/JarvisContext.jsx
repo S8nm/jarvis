@@ -33,7 +33,10 @@ export function JarvisProvider({ children }) {
         audioLevel: jarvis.audioLevel,
         detections: jarvis.detections,
         queueSize: jarvis.queueSize,
-    }), [jarvis.status, jarvis.dashboard, jarvis.toolActivity, jarvis.audioLevel, jarvis.detections, jarvis.queueSize]);
+        piStatus: jarvis.piStatus,
+        routeInfo: jarvis.routeInfo,
+        piHealth: jarvis.piHealth,
+    }), [jarvis.status, jarvis.dashboard, jarvis.toolActivity, jarvis.audioLevel, jarvis.detections, jarvis.queueSize, jarvis.piStatus, jarvis.routeInfo, jarvis.piHealth]);
 
     const voiceCtx = useMemo(() => ({
         voiceStatus: voice.voiceStatus,

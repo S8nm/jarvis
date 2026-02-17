@@ -26,6 +26,9 @@ export function useJarvisSocket() {
     const [detections, setDetections] = useState([]); // Object detection results
     const [audioLevel, setAudioLevel] = useState({ rms: 0, isSpeech: false }); // Live mic level
     const [queueSize, setQueueSize] = useState(0); // Pending text input queue size
+    const [piStatus, setPiStatus] = useState(null); // Pi worker / PicoClaw status
+    const [routeInfo, setRouteInfo] = useState(null); // Last route decision from backend
+    const [piHealth, setPiHealth] = useState(null); // Live Pi health from monitor
 
     const wsRef = useRef(null);
     const reconnectTimer = useRef(null);
@@ -92,6 +95,20 @@ export function useJarvisSocket() {
             }
         } catch (e) {
             console.warn('[JARVIS] Status fetch failed:', e);
+        }
+    }, []);
+
+    const fetchPiStatus = useCallback(async () => {
+        try {
+            const resp = await fetch(`${API_URL}/pi/status`);
+            if (resp.ok) {
+                const json = await resp.json();
+                if (json.status === 'ok' && json.data) {
+                    setPiStatus(json.data);
+                }
+            }
+        } catch (e) {
+            // Silent — Pi may not be configured
         }
     }, []);
 
@@ -220,6 +237,25 @@ export function useJarvisSocket() {
                 console.log('[JARVIS] Mic calibrated, threshold:', data.threshold);
                 break;
 
+            case 'route_decision':
+                setRouteInfo({
+                    target: data.target,
+                    intentType: data.intent_type,
+                    confidence: data.confidence,
+                    reason: data.reason,
+                    classificationMs: data.classification_ms,
+                    toolHint: data.tool_hint,
+                });
+                break;
+
+            case 'pi_health':
+                setPiHealth(data);
+                break;
+
+            case 'rate_limited':
+                console.warn('[JARVIS] Rate limited:', data);
+                break;
+
             case 'error':
                 console.error('[JARVIS] Agent error:', data.message);
                 break;
@@ -263,6 +299,13 @@ export function useJarvisSocket() {
         const interval = setInterval(fetchStatus, 2000);
         return () => clearInterval(interval);
     }, [fetchStatus]);
+
+    // Refresh Pi status periodically (every 15s)
+    useEffect(() => {
+        fetchPiStatus();
+        const interval = setInterval(fetchPiStatus, 15000);
+        return () => clearInterval(interval);
+    }, [fetchPiStatus]);
 
     const sendMessage = useCallback((type, data = {}) => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -310,5 +353,8 @@ export function useJarvisSocket() {
         audioLevel,
         queueSize,
         recalibrateMic,
+        piStatus,
+        routeInfo,
+        piHealth,
     };
 }
