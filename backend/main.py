@@ -17,8 +17,10 @@ from typing import Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import HOST, PORT, PERSONAPLEX_ENABLED, PERSONAPLEX_BRIDGE_PORT
+from config import HOST, PORT, PERSONAPLEX_ENABLED, PERSONAPLEX_BRIDGE_PORT, TELEGRAM_BOT_TOKEN
 from agent import JarvisAgent
+from resilience.cost_tracker import get_cost_tracker
+from resilience.pi_health import PiHealthMonitor
 
 # ──────────────────────────── Logging ────────────────────────────
 logging.basicConfig(
@@ -31,6 +33,8 @@ logger = logging.getLogger("jarvis.server")
 # ──────────────────────────── Globals ────────────────────────────
 agent = JarvisAgent()
 detector = None  # Will be initialized in lifespan
+telegram_bot = None  # Will be initialized in lifespan
+pi_health: PiHealthMonitor | None = None  # Will be initialized in lifespan
 connected_clients: Set[WebSocket] = set()
 
 
@@ -97,18 +101,52 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"PersonaPlex Bridge not started: {e}")
 
+    # Start Telegram Bot
+    global telegram_bot
+    if TELEGRAM_BOT_TOKEN:
+        try:
+            from telegram_bot import JarvisTelegramBot
+            telegram_bot = JarvisTelegramBot(agent=agent, broadcast=broadcast)
+            await telegram_bot.start()
+        except Exception as e:
+            logger.warning(f"Telegram bot not started: {e}")
+
+    # Start Pi Health Monitor
+    global pi_health
+    try:
+        from pi.config import is_pi_enabled
+        if is_pi_enabled():
+            from tools.registry import _get_pi_client
+            pi_client = _get_pi_client()
+            if pi_client:
+                pi_health = PiHealthMonitor(pi_client)
+                pi_health.set_broadcast(broadcast)
+                await pi_health.start()
+                logger.info("Pi health monitor active")
+    except Exception as e:
+        logger.warning(f"Pi health monitor not started: {e}")
+
     logger.info("=" * 60)
     logger.info(f"  J.A.R.V.I.S. Online — ws://{HOST}:{PORT}/ws")
     if bridge:
         logger.info(f"  PersonaPlex Bridge — ws://localhost:{PERSONAPLEX_BRIDGE_PORT}/api/chat")
+    if telegram_bot and telegram_bot._running:
+        logger.info("  Telegram Bot — active")
+    if pi_health:
+        logger.info("  Pi Health Monitor — active")
     logger.info("=" * 60)
 
     yield  # App is running
 
     # Shutdown
     logger.info("J.A.R.V.I.S. shutting down...")
+    if pi_health:
+        await pi_health.stop()
+    if telegram_bot:
+        await telegram_bot.stop()
     if bridge:
         await bridge.stop()
+    await agent._claude_client.close()
     agent.stop_wake_detection()
     logger.info("Goodbye, sir.")
 
@@ -124,8 +162,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "http://localhost:5174",
         "http://localhost:5175",
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
         "app://."
     ],
@@ -159,8 +199,9 @@ async def tool_stats():
     try:
         from tools.registry import get_execution_stats
         stats = get_execution_stats()
-        # Include LLM stats
         stats["llm"] = agent.llm.get_stats()
+        stats["claude"] = agent._claude_client.get_stats()
+        stats["router"] = agent._router.get_stats()
         return {"status": "ok", "data": stats}
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -178,6 +219,94 @@ async def list_memories():
         }
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
+
+@app.get("/pi/status")
+async def pi_status():
+    """Get Raspberry Pi / PicoClaw worker status and recent task history."""
+    try:
+        from pi.config import is_pi_enabled, get_pi_config
+        from tools.registry import _get_pi_client, get_execution_stats
+
+        enabled = is_pi_enabled()
+        if not enabled:
+            return {"status": "ok", "data": {"enabled": False}}
+
+        cfg = get_pi_config()
+        client = _get_pi_client()
+
+        # Recent tasks from SQLite ledger
+        recent_tasks = client.get_recent_tasks(5) if client else []
+
+        # Filter execution stats for pi.* tools
+        all_stats = get_execution_stats()
+        pi_tool_stats = {
+            k: v for k, v in all_stats.get("per_tool", {}).items()
+            if k.startswith("pi.")
+        }
+
+        # Aggregate totals across all pi tools
+        total_calls = sum(s["calls"] for s in pi_tool_stats.values())
+        total_successes = sum(s["successes"] for s in pi_tool_stats.values())
+        avg_ms = (
+            sum(s["avg_ms"] * s["calls"] for s in pi_tool_stats.values()) / total_calls
+            if total_calls > 0 else 0
+        )
+
+        return {
+            "status": "ok",
+            "data": {
+                "enabled": True,
+                "host": cfg.get("host", ""),
+                "transport": cfg.get("transport", "ssh"),
+                "recent_tasks": recent_tasks,
+                "stats": {
+                    "total_calls": total_calls,
+                    "total_successes": total_successes,
+                    "success_rate": round(total_successes / total_calls * 100, 1) if total_calls else 0,
+                    "avg_ms": round(avg_ms, 1),
+                },
+                "per_tool": pi_tool_stats,
+            }
+        }
+    except Exception as e:
+        logger.warning(f"Pi status error: {e}")
+        return {"status": "ok", "data": {"enabled": False, "error": str(e)}}
+
+
+@app.get("/api/cost/report")
+async def cost_report():
+    """Get Claude API cost tracking report."""
+    try:
+        tracker = get_cost_tracker()
+        return {"status": "ok", "data": tracker.get_report()}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/api/router/stats")
+async def router_stats():
+    """Get intent router classification statistics."""
+    try:
+        return {
+            "status": "ok",
+            "data": {
+                "router": agent._router.get_stats(),
+                "claude": agent._claude_client.get_stats(),
+                "ollama": agent.llm.get_stats(),
+                "rate_limiter": agent._rate_limiter.get_status(),
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/api/pi/health")
+async def pi_health_status():
+    """Get Pi health monitor status including queue and connectivity."""
+    if pi_health:
+        return {"status": "ok", "data": pi_health.get_status()}
+    return {"status": "ok", "data": {"reachable": False, "monitor_active": False}}
 
 
 @app.websocket("/ws")
@@ -309,6 +438,6 @@ if __name__ == "__main__":
         host=HOST,
         port=PORT,
         reload=True,
-        reload_dirs=[".", "llm", "speech", "tools", "vision", "bridge"],
+        reload_dirs=[".", "llm", "speech", "tools", "vision", "bridge", "resilience"],
         log_level="info"
     )
