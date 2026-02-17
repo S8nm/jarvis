@@ -1,0 +1,42 @@
+{
+    "_comment": "J.A.R.V.I.S. Configuration — Edit these values to customize your setup",
+
+    "mic_device": 1,
+    "audio_gain": 10.0,
+    "silence_limit": 1.0,
+    "wake_sensitivity": 0.3,
+
+    "whisper_model": "base.en",
+    "whisper_device": "cpu",
+
+    "ollama_model": "llama3.1:8b",
+    "ollama_url": "http://127.0.0.1:11434",
+    "max_context_messages": 20,
+
+    "piper_voice": "en_GB-alan-medium",
+
+    "memory_auto_extract": true,
+
+    "personaplex": {
+        "enabled": true,
+        "host": "localhost",
+        "port": 8998,
+        "ssl": true,
+        "bridge_port": 8999,
+        "voice": "NATM0.pt",
+        "persona": "You are JARVIS, a highly capable AI assistant. You speak with a British accent and are knowledgeable, witty, and efficient. Be concise and helpful."
+    },
+
+    "pi": {
+        "host": "192.168.8.197",
+        "user": "pi",
+        "ssh_key": "~/.ssh/jarvis_pi",
+        "ssh_port": 22,
+        "transport": "ssh",
+        "gateway_port": 18790,
+        "tunnel_local_port": 18790,
+        "dispatcher_path": "~/jarvis-pi/dispatcher.py",
+        "max_retries": 2,
+        "connect_timeout": 5
+    }
+}

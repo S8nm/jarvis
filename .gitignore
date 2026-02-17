@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+venv/
+.venv/
+env/
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+.vite/
+
+# IDE / Editor configs
+.agent/
+.agents/
+.claude/
+.cursor/
+.kiro/
+.windsurf/
+.vscode/
+.idea/
+
+# Data & models (large / local)
+data/
+models/
+*.db
+*.sqlite
+*.sqlite3
+*.pt
+*.onnx
+*.bin
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Secrets / local config
+.env
+*.pem
+*.key
+ssl_certs/
+pi-worker/config.json
+
+# Sandbox / scratch
+sandbox/
+
+# Session notes (local only)
+session_summary_*.md
+project_status.md
+prompt.md
+progress.txt
+prd.json

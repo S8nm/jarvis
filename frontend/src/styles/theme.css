@@ -1,0 +1,414 @@
+/* ═══════════════════════════════════════════════════════════
+   J.A.R.V.I.S. Protocol — Blue OS Design System
+   Deep navy/black background + neon blue accents + glassmorphism
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Reset ── */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* ── Core Palette (Stark Industries Blue) ── */
+  --bg-deep: #000510;
+  --bg-primary: #000a18;
+  --bg-secondary: #001428;
+  --bg-tertiary: #002040;
+
+  /* ── Neon Accents (Blue-Cyan Focused) ── */
+  --neon-cyan: #00f3ff;
+  --neon-blue: #00aaff;
+  --neon-darkblue: #0066cc;
+  --neon-pink: #ff006b;
+  --neon-purple: #8800ff;
+  --neon-green: #39ff14;
+  --neon-orange: #ff9500;
+  --neon-yellow: #ffcc00;
+
+  /* Primary UI colors */
+  --accent-primary: var(--neon-cyan);
+  --accent-secondary: var(--neon-blue);
+  --accent-tertiary: var(--neon-darkblue);
+  --accent-dim: #00334d;
+  --accent-alert: #ff3366;
+
+  --accent-glow: rgba(0, 243, 255, 0.3);
+  --accent-glow-strong: rgba(0, 243, 255, 0.7);
+
+  /* ── Text ── */
+  --text-primary: #ccf2ff;
+  --text-secondary: #00aaff;
+  --text-dim: #5a7a9d;
+  --text-accent: var(--neon-cyan);
+
+  /* ── Status Colors ── */
+  --status-idle: var(--neon-cyan);
+  --status-listen: var(--neon-green);
+  --status-think: var(--neon-yellow);
+  --status-speak: var(--neon-pink);
+  --status-error: #ff3366;
+  --status-success: var(--neon-green);
+
+  /* ── Tech Panel (Stark Industries Glass) ── */
+  --glass-bg: rgba(0, 10, 24, 0.85);
+  --glass-border: rgba(0, 243, 255, 0.4);
+  --glass-border-hover: rgba(0, 243, 255, 0.9);
+  --glass-blur: 6px;
+
+  /* ── Spacing ── */
+  --gap-xs: 4px;
+  --gap-sm: 8px;
+  --gap-md: 16px;
+  --gap-lg: 24px;
+  --gap-xl: 32px;
+
+  /* ── Radius ── */
+  --radius-sm: 2px;
+  /* Sharper corners */
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 16px;
+
+  /* ── Typography ── */
+  --font-display: 'Orbitron', 'Rajdhani', sans-serif;
+  --font-sans: 'Rajdhani', 'Segoe UI', sans-serif;
+  --font-mono: 'Share Tech Mono', 'Consolas', monospace;
+
+  /* ── Shadows & Glows ── */
+  --shadow-glow: 0 0 15px rgba(0, 243, 255, 0.5);
+  --shadow-glow-lg: 0 0 40px rgba(0, 243, 255, 0.7);
+  --shadow-panel: inset 0 0 30px rgba(0, 243, 255, 0.1);
+  --shadow-neon-multi: 0 0 10px var(--neon-cyan), 0 0 20px var(--neon-blue), 0 0 30px var(--neon-cyan);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+}
+
+/* ── Scrollbar (Stark Industries Style) ── */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 10, 24, 0.4);
+  border-left: 1px solid rgba(0, 243, 255, 0.2);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--neon-cyan), var(--neon-blue));
+  border-radius: 4px;
+  box-shadow: 0 0 8px rgba(0, 243, 255, 0.5);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--neon-blue), var(--neon-cyan));
+  box-shadow: 0 0 12px rgba(0, 243, 255, 0.6);
+}
+
+/* ═══ Glass Panel Base ═══ */
+.glass-panel {
+  background: rgba(0, 8, 20, 0.65);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+/* Corner Accents (Stark Industries Brackets) */
+.glass-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 15px;
+  height: 15px;
+  border-top: 2px solid var(--neon-cyan);
+  border-left: 2px solid var(--neon-blue);
+  opacity: 0.9;
+  pointer-events: none;
+  box-shadow: 0 0 8px var(--neon-cyan);
+}
+
+.glass-panel::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 15px;
+  height: 15px;
+  border-bottom: 2px solid var(--neon-cyan);
+  border-right: 2px solid var(--neon-blue);
+  opacity: 0.9;
+  pointer-events: none;
+  box-shadow: 0 0 8px var(--neon-cyan);
+}
+
+.glass-panel:hover {
+  border-color: rgba(0, 243, 255, 0.7);
+  box-shadow: 0 0 12px rgba(0, 243, 255, 0.15), 0 0 24px rgba(0, 243, 255, 0.08), var(--shadow-panel);
+  transform: translateY(-1px);
+}
+
+/* ═══ Panel Header ═══ */
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  padding: var(--gap-md) var(--gap-lg);
+  border-bottom: 1px solid var(--glass-border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+}
+
+.panel-header .indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 12px var(--neon-cyan), 0 0 20px var(--neon-blue);
+  animation: pulse-blue 2s ease-in-out infinite;
+}
+
+/* ═══ Animations ═══ */
+@keyframes pulse-dot {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes glow-pulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+  }
+
+  50% {
+    box-shadow: 0 0 40px rgba(0, 212, 255, 0.25);
+  }
+}
+
+@keyframes border-shimmer {
+  0% {
+    border-color: rgba(0, 212, 255, 0.1);
+  }
+
+  50% {
+    border-color: rgba(0, 212, 255, 0.3);
+  }
+
+  100% {
+    border-color: rgba(0, 212, 255, 0.1);
+  }
+}
+
+@keyframes border-shimmer-blue {
+  0% {
+    border-color: rgba(0, 243, 255, 0.4);
+    box-shadow: 0 0 10px var(--neon-cyan), 0 0 20px var(--neon-blue);
+  }
+
+  50% {
+    border-color: rgba(0, 170, 255, 0.6);
+    box-shadow: 0 0 15px var(--neon-blue), 0 0 25px var(--neon-cyan);
+  }
+
+  100% {
+    border-color: rgba(0, 243, 255, 0.4);
+    box-shadow: 0 0 10px var(--neon-cyan), 0 0 20px var(--neon-blue);
+  }
+}
+
+@keyframes pulse-blue {
+  0%, 100% {
+    background: var(--neon-cyan);
+    box-shadow: 0 0 12px var(--neon-cyan);
+  }
+
+  50% {
+    background: var(--neon-blue);
+    box-shadow: 0 0 12px var(--neon-blue);
+  }
+}
+
+@keyframes pulse-rainbow {
+  0%, 100% {
+    background: var(--neon-cyan);
+    box-shadow: 0 0 12px var(--neon-cyan);
+  }
+
+  33% {
+    background: var(--neon-blue);
+    box-shadow: 0 0 12px var(--neon-blue);
+  }
+
+  66% {
+    background: var(--neon-purple);
+    box-shadow: 0 0 12px var(--neon-purple);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes typewriter-cursor {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ── Breathing Orb (IDLE) ── */
+@keyframes orb-breathe {
+
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 30px rgba(0, 212, 255, 0.2), 0 0 60px rgba(0, 212, 255, 0.1);
+  }
+
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 50px rgba(0, 212, 255, 0.35), 0 0 100px rgba(0, 212, 255, 0.15);
+  }
+}
+
+/* ── Listening Pulse ── */
+@keyframes orb-listen {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+  }
+
+  50% {
+    transform: scale(1.15);
+    box-shadow: 0 0 60px rgba(0, 212, 255, 0.6), 0 0 120px rgba(0, 212, 255, 0.2);
+  }
+
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+  }
+}
+
+/* ── Thinking Spin ── */
+@keyframes orb-think {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Speaking Wave ── */
+@keyframes orb-speak {
+
+  0%,
+  100% {
+    transform: scaleX(1) scaleY(1);
+  }
+
+  25% {
+    transform: scaleX(1.1) scaleY(0.95);
+  }
+
+  50% {
+    transform: scaleX(0.95) scaleY(1.1);
+  }
+
+  75% {
+    transform: scaleX(1.08) scaleY(0.97);
+  }
+}
+
+/* ── Ring animations ── */
+@keyframes ring-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ring-counter-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes ring-pulse {
+
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}

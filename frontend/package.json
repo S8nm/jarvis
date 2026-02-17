@@ -1,0 +1,31 @@
+{
+    "name": "jarvis-protocol",
+    "version": "0.1.0",
+    "description": "J.A.R.V.I.S. Protocol — Local AI Assistant Dashboard",
+    "main": "main.electron.js",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "electron": "electron .",
+        "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+        "start": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\""
+    },
+    "dependencies": {
+        "@react-three/drei": "^10.7.7",
+        "@react-three/fiber": "^9.5.0",
+        "motion": "^12.34.0",
+        "ogl": "^1.0.11",
+        "opus-recorder": "^8.0.5",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "react-webcam": "^7.2.0",
+        "three": "^0.182.0"
+    },
+    "devDependencies": {
+        "@vitejs/plugin-react": "^4.3.1",
+        "concurrently": "^8.2.2",
+        "electron": "^32.3.3",
+        "vite": "^5.4.0",
+        "wait-on": "^7.2.0"
+    }
+}

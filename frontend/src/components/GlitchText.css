@@ -1,0 +1,80 @@
+/* GlitchText — Cyberpunk RGB split effect */
+.glitch-text {
+  position: relative;
+  display: inline-block;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+.glitch-text::after,
+.glitch-text::before {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: inherit;
+  overflow: hidden;
+  clip-path: inset(0 0 0 0);
+}
+
+/* Always-on glitch */
+.glitch-text:not(.glitch-hover-only)::after {
+  left: 3px;
+  text-shadow: var(--after-shadow, -5px 0 rgba(0, 243, 255, 0.7));
+  animation: glitch-anim var(--after-duration, 3s) infinite linear alternate-reverse;
+}
+
+.glitch-text:not(.glitch-hover-only)::before {
+  left: -3px;
+  text-shadow: var(--before-shadow, 5px 0 rgba(136, 0, 255, 0.7));
+  animation: glitch-anim var(--before-duration, 2s) infinite linear alternate-reverse;
+}
+
+/* Hover-only variant */
+.glitch-text.glitch-hover-only::after,
+.glitch-text.glitch-hover-only::before {
+  content: '';
+  opacity: 0;
+  animation: none;
+}
+
+.glitch-text.glitch-hover-only:hover::after {
+  content: attr(data-text);
+  opacity: 1;
+  left: 3px;
+  text-shadow: var(--after-shadow);
+  animation: glitch-anim var(--after-duration, 3s) infinite linear alternate-reverse;
+}
+
+.glitch-text.glitch-hover-only:hover::before {
+  content: attr(data-text);
+  opacity: 1;
+  left: -3px;
+  text-shadow: var(--before-shadow);
+  animation: glitch-anim var(--before-duration, 2s) infinite linear alternate-reverse;
+}
+
+@keyframes glitch-anim {
+  0%  { clip-path: inset(20% 0 50% 0); }
+  5%  { clip-path: inset(10% 0 60% 0); }
+  10% { clip-path: inset(15% 0 55% 0); }
+  15% { clip-path: inset(25% 0 35% 0); }
+  20% { clip-path: inset(30% 0 40% 0); }
+  25% { clip-path: inset(40% 0 20% 0); }
+  30% { clip-path: inset(10% 0 60% 0); }
+  35% { clip-path: inset(15% 0 55% 0); }
+  40% { clip-path: inset(25% 0 35% 0); }
+  45% { clip-path: inset(30% 0 40% 0); }
+  50% { clip-path: inset(20% 0 50% 0); }
+  55% { clip-path: inset(10% 0 60% 0); }
+  60% { clip-path: inset(15% 0 55% 0); }
+  65% { clip-path: inset(25% 0 35% 0); }
+  70% { clip-path: inset(30% 0 40% 0); }
+  75% { clip-path: inset(40% 0 20% 0); }
+  80% { clip-path: inset(20% 0 50% 0); }
+  85% { clip-path: inset(10% 0 60% 0); }
+  90% { clip-path: inset(15% 0 55% 0); }
+  95% { clip-path: inset(25% 0 35% 0); }
+  100%{ clip-path: inset(30% 0 40% 0); }
+}

@@ -1,0 +1,25 @@
+[Unit]
+Description=JARVIS Pi Dispatcher
+Documentation=https://github.com/your-repo/jarvis
+After=network.target
+
+[Service]
+Type=simple
+User=jarvis
+Group=jarvis
+WorkingDirectory=/home/jarvis/jarvis-pi
+ExecStart=/usr/bin/python3 /home/jarvis/jarvis-pi/dispatcher.py --serve
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/jarvis/jarvis-pi/scripts
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

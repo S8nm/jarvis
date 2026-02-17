@@ -1,0 +1,23 @@
+[Unit]
+Description=PicoClaw Gateway for JARVIS
+After=network.target
+
+[Service]
+Type=simple
+User=jarvis
+Group=jarvis
+ExecStart=/usr/local/bin/picoclaw gateway --bind 127.0.0.1:18790
+Restart=on-failure
+RestartSec=5
+Environment=HOME=/home/jarvis
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
