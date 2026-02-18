@@ -2,7 +2,7 @@
  * CountUp — Animated number counter using spring physics (inspired by react-bits)
  * Uses motion library for smooth spring-based number transitions.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 import { useSpring, useTransform, motion } from 'motion/react';
 
 export default function CountUp({

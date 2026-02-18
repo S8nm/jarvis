@@ -4,10 +4,9 @@ Uses wttr.in (free, no API key required) for weather data.
 """
 import json
 import logging
+import time
 import urllib.request
 import urllib.error
-from functools import lru_cache
-from datetime import datetime
 
 logger = logging.getLogger("jarvis.tools.weather")
 
@@ -21,7 +20,7 @@ _cache_ttl = 600  # 10 minutes
 def _fetch_weather(location: str) -> dict | None:
     """Fetch weather JSON from wttr.in with caching."""
     cache_key = location.lower().strip()
-    now = datetime.now().timestamp()
+    now = time.monotonic()
 
     # Check cache
     if cache_key in _cache:

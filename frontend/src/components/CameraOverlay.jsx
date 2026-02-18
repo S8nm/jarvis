@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, memo } from 'react';
+import { useRef, useEffect, memo } from 'react';
 import Webcam from 'react-webcam';
 import { useActions } from '../contexts/JarvisContext';
 
@@ -16,24 +16,6 @@ const videoConstraints = {
 const CameraOverlay = memo(function CameraOverlay({ isActive, detections }) {
     const { sendMessage } = useActions();
     const webcamRef = useRef(null);
-    const videoRef = useRef(null);
-    const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
-
-    useEffect(() => {
-        const checkSize = () => {
-            const video = webcamRef.current?.video;
-            if (video && video.videoWidth) {
-                setVideoSize({
-                    width: video.clientWidth,
-                    height: video.clientHeight
-                });
-            }
-        };
-
-        const interval = setInterval(checkSize, 500);
-        checkSize();
-        return () => clearInterval(interval);
-    }, [isActive]);
 
     useEffect(() => {
         let interval;
@@ -64,7 +46,7 @@ const CameraOverlay = memo(function CameraOverlay({ isActive, detections }) {
                 </span>
             </div>
 
-            <div className="camera-pip-video" ref={videoRef}>
+            <div className="camera-pip-video">
                 <Webcam
                     audio={false}
                     ref={webcamRef}

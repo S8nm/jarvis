@@ -51,6 +51,7 @@ desktop.ini
 *.key
 ssl_certs/
 pi-worker/config.json
+config.json
 
 # Sandbox / scratch
 sandbox/

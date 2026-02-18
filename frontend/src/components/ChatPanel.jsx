@@ -104,7 +104,7 @@ const ChatPanel = memo(function ChatPanel() {
                 }
             </div>
 
-            <QuickActions sendText={sendText} disabled={isBusy} />
+            <QuickActions sendText={sendText} populateInput={(text) => { setInputText(text); textareaRef.current?.focus(); }} disabled={isBusy} />
         </div>
     );
 });

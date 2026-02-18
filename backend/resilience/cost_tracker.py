@@ -65,23 +65,21 @@ class CostTracker:
         self._init_db()
 
     def _init_db(self):
-        conn = sqlite3.connect(str(self._db_path))
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS claude_usage (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                model TEXT NOT NULL,
-                input_tokens INTEGER NOT NULL DEFAULT 0,
-                output_tokens INTEGER NOT NULL DEFAULT 0,
-                cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-                cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
-                cost_usd REAL NOT NULL DEFAULT 0.0,
-                request_type TEXT NOT NULL DEFAULT 'sync',
-                summary TEXT DEFAULT ''
-            )
-        """)
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(str(self._db_path)) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS claude_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_usd REAL NOT NULL DEFAULT 0.0,
+                    request_type TEXT NOT NULL DEFAULT 'sync',
+                    summary TEXT DEFAULT ''
+                )
+            """)
         logger.info(f"Cost tracker initialized: {self._db_path}")
 
     def calculate_cost(self, model: str, input_tokens: int, output_tokens: int,
@@ -109,19 +107,17 @@ class CostTracker:
                                    cache_read, cache_creation)
         now = datetime.now().isoformat()
 
-        conn = sqlite3.connect(str(self._db_path))
-        conn.execute(
-            """INSERT INTO claude_usage
-               (timestamp, model, input_tokens, output_tokens,
-                cache_read_tokens, cache_creation_tokens, cost_usd,
-                request_type, summary)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (now, model, input_tokens, output_tokens,
-             cache_read, cache_creation, cost,
-             request_type, summary[:200])
-        )
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(str(self._db_path)) as conn:
+            conn.execute(
+                """INSERT INTO claude_usage
+                   (timestamp, model, input_tokens, output_tokens,
+                    cache_read_tokens, cache_creation_tokens, cost_usd,
+                    request_type, summary)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (now, model, input_tokens, output_tokens,
+                 cache_read, cache_creation, cost,
+                 request_type, summary[:200])
+            )
 
         logger.info(
             f"Claude cost: ${cost:.4f} | {model} | "
@@ -133,23 +129,21 @@ class CostTracker:
     def get_daily_spend(self) -> float:
         """Get today's total Claude spend."""
         today = date.today().isoformat()
-        conn = sqlite3.connect(str(self._db_path))
-        result = conn.execute(
-            "SELECT COALESCE(SUM(cost_usd), 0) FROM claude_usage WHERE timestamp >= ?",
-            (today,)
-        ).fetchone()[0]
-        conn.close()
+        with sqlite3.connect(str(self._db_path)) as conn:
+            result = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) FROM claude_usage WHERE timestamp >= ?",
+                (today,)
+            ).fetchone()[0]
         return round(result, 4)
 
     def get_monthly_spend(self) -> float:
         """Get this month's total Claude spend."""
         month_start = date.today().replace(day=1).isoformat()
-        conn = sqlite3.connect(str(self._db_path))
-        result = conn.execute(
-            "SELECT COALESCE(SUM(cost_usd), 0) FROM claude_usage WHERE timestamp >= ?",
-            (month_start,)
-        ).fetchone()[0]
-        conn.close()
+        with sqlite3.connect(str(self._db_path)) as conn:
+            result = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) FROM claude_usage WHERE timestamp >= ?",
+                (month_start,)
+            ).fetchone()[0]
         return round(result, 4)
 
     def can_afford(self, estimated_tokens: int = 4000, model: str = "") -> tuple[bool, str]:
@@ -172,27 +166,25 @@ class CostTracker:
         daily_spend = self.get_daily_spend()
         monthly_spend = self.get_monthly_spend()
 
-        conn = sqlite3.connect(str(self._db_path))
-        conn.row_factory = sqlite3.Row
+        with sqlite3.connect(str(self._db_path)) as conn:
+            conn.row_factory = sqlite3.Row
 
-        # Today's stats
-        today = date.today().isoformat()
-        today_row = conn.execute("""
-            SELECT COUNT(*) as calls,
-                   COALESCE(SUM(input_tokens), 0) as input_tokens,
-                   COALESCE(SUM(output_tokens), 0) as output_tokens,
-                   COALESCE(SUM(cache_read_tokens), 0) as cache_hits
-            FROM claude_usage WHERE timestamp >= ?
-        """, (today,)).fetchone()
+            # Today's stats
+            today = date.today().isoformat()
+            today_row = conn.execute("""
+                SELECT COUNT(*) as calls,
+                       COALESCE(SUM(input_tokens), 0) as input_tokens,
+                       COALESCE(SUM(output_tokens), 0) as output_tokens,
+                       COALESCE(SUM(cache_read_tokens), 0) as cache_hits
+                FROM claude_usage WHERE timestamp >= ?
+            """, (today,)).fetchone()
 
-        # Recent calls (last 10)
-        recent = conn.execute("""
-            SELECT timestamp, model, input_tokens, output_tokens,
-                   cache_read_tokens, cost_usd, request_type, summary
-            FROM claude_usage ORDER BY timestamp DESC LIMIT 10
-        """).fetchall()
-
-        conn.close()
+            # Recent calls (last 10)
+            recent = conn.execute("""
+                SELECT timestamp, model, input_tokens, output_tokens,
+                       cache_read_tokens, cost_usd, request_type, summary
+                FROM claude_usage ORDER BY timestamp DESC LIMIT 10
+            """).fetchall()
 
         daily_warning = daily_spend >= _DAILY_LIMIT * _WARN_THRESHOLD
         monthly_warning = monthly_spend >= _MONTHLY_LIMIT * _WARN_THRESHOLD

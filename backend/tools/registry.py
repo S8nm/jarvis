@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import time
+from collections import deque
 from datetime import datetime
 from functools import wraps
 from typing import Callable
@@ -28,8 +29,8 @@ _vision = VisionTool()
 # ────────────────────────── Execution Logging ──────────────────────────
 # Inspired by Microsoft JARVIS's comprehensive case recording
 
-_execution_log: list[dict] = []
 _MAX_LOG_SIZE = 200
+_execution_log: deque = deque(maxlen=_MAX_LOG_SIZE)
 
 
 def _log_execution(tool_name: str, args: dict, result: dict, elapsed: float, success: bool):
@@ -43,8 +44,6 @@ def _log_execution(tool_name: str, args: dict, result: dict, elapsed: float, suc
         "error": result.get("error") if not success else None,
     }
     _execution_log.append(entry)
-    if len(_execution_log) > _MAX_LOG_SIZE:
-        _execution_log.pop(0)
 
     level = logging.INFO if success else logging.WARNING
     logger.log(level,
@@ -60,7 +59,7 @@ def get_execution_stats() -> dict:
 
     total = len(_execution_log)
     successes = sum(1 for e in _execution_log if e["success"])
-    recent = _execution_log[-5:]
+    recent = list(_execution_log)[-5:]
 
     # Per-tool stats
     tool_stats = {}
@@ -228,13 +227,15 @@ RULES:
 def _catch_all(func: Callable) -> Callable:
     """
     Decorator that catches all exceptions from tool handlers.
-    Inspired by sukeesh/Jarvis's catch_all_exceptions pattern.
-    Returns a structured error dict instead of raising.
+    Async-aware: properly awaits coroutines before catching exceptions.
     """
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    async def wrapper(*args, **kwargs):
         try:
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return result
         except KeyError as e:
             return {"error": f"Missing required argument: {e}", "error_type": "missing_arg"}
         except TypeError as e:
@@ -304,23 +305,21 @@ async def execute_tool(tool_name: str, args: dict) -> dict:
         "memory.forget": _catch_all(lambda a: _forget_memory(a)),
 
         # Raspberry Pi worker tools
-        "pi.ping": lambda a: _pi_execute("system_info", {"check": "uptime"}),
-        "pi.system_info": lambda a: _pi_execute("system_info", a),
-        "pi.gpio_read": lambda a: _pi_execute("gpio_read", a),
-        "pi.gpio_write": lambda a: _pi_execute("gpio_write", a),
-        "pi.i2c_scan": lambda a: _pi_execute("i2c_scan", a),
-        "pi.service_status": lambda a: _pi_execute("service_status", a),
-        "pi.run_script": lambda a: _pi_execute("run_script", a),
-        "pi.picoclaw": lambda a: _pi_execute("picoclaw", a),
-        "pi.picoclaw_cron": lambda a: _pi_execute("picoclaw_cron", a),
+        "pi.ping": _catch_all(lambda a: _pi_execute("system_info", {"check": "uptime"})),
+        "pi.system_info": _catch_all(lambda a: _pi_execute("system_info", a)),
+        "pi.gpio_read": _catch_all(lambda a: _pi_execute("gpio_read", a)),
+        "pi.gpio_write": _catch_all(lambda a: _pi_execute("gpio_write", a)),
+        "pi.i2c_scan": _catch_all(lambda a: _pi_execute("i2c_scan", a)),
+        "pi.service_status": _catch_all(lambda a: _pi_execute("service_status", a)),
+        "pi.run_script": _catch_all(lambda a: _pi_execute("run_script", a)),
+        "pi.picoclaw": _catch_all(lambda a: _pi_execute("picoclaw", a)),
+        "pi.picoclaw_cron": _catch_all(lambda a: _pi_execute("picoclaw_cron", a)),
     }
 
     try:
         if tool_name in tool_map:
             handler = tool_map[tool_name]
-            result = handler(args)
-            if asyncio.iscoroutine(result):
-                result = await result
+            result = await handler(args)
             elapsed = time.time() - start_time
             success = "error" not in result if isinstance(result, dict) else True
             _log_execution(tool_name, args, result if isinstance(result, dict) else {}, elapsed, success)

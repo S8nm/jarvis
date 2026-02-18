@@ -15,6 +15,11 @@ logger = logging.getLogger("jarvis.tools.notes")
 DB_PATH = DATA_DIR / "jarvis.db"
 
 
+def _escape_like(s: str) -> str:
+    """Escape LIKE wildcard characters in user input."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
@@ -36,11 +41,25 @@ def _ensure_table():
         """)
 
 
-_ensure_table()
+_notes_table_initialized = False
+
+
+def _ensure_init():
+    global _notes_table_initialized
+    if not _notes_table_initialized:
+        _ensure_table()
+        _notes_table_initialized = True
+
+
+try:
+    _ensure_init()
+except Exception as e:
+    logger.error(f"Notes table init failed (will retry on first use): {e}")
 
 
 def add_note(content: str, tag: str = "general") -> dict:
     """Add a new mental note."""
+    _ensure_init()
     now = datetime.now().isoformat()
     with _get_conn() as conn:
         cur = conn.execute(
@@ -54,6 +73,7 @@ def add_note(content: str, tag: str = "general") -> dict:
 
 def list_notes(tag: Optional[str] = None, limit: int = 20) -> list[dict]:
     """List notes, optionally filtered by tag."""
+    _ensure_init()
     with _get_conn() as conn:
         if tag:
             rows = conn.execute(
@@ -70,16 +90,18 @@ def list_notes(tag: Optional[str] = None, limit: int = 20) -> list[dict]:
 
 def search_notes(query: str) -> list[dict]:
     """Search notes by content."""
+    _ensure_init()
     with _get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM notes WHERE content LIKE ? ORDER BY created_at DESC LIMIT 20",
-            (f"%{query}%",)
+            "SELECT * FROM notes WHERE content LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT 20",
+            (f"%{_escape_like(query)}%",)
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 def delete_note(note_id: int) -> bool:
     """Delete a note by ID."""
+    _ensure_init()
     with _get_conn() as conn:
         cur = conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
         return cur.rowcount > 0
@@ -87,6 +109,7 @@ def delete_note(note_id: int) -> bool:
 
 def pin_note(note_id: int, pinned: bool = True) -> bool:
     """Pin or unpin a note."""
+    _ensure_init()
     with _get_conn() as conn:
         cur = conn.execute(
             "UPDATE notes SET pinned = ? WHERE id = ?",
@@ -97,6 +120,7 @@ def pin_note(note_id: int, pinned: bool = True) -> bool:
 
 def get_notes_summary() -> dict:
     """Get a summary of notes for the dashboard."""
+    _ensure_init()
     with _get_conn() as conn:
         total = conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
         pinned = conn.execute("SELECT COUNT(*) FROM notes WHERE pinned = 1").fetchone()[0]

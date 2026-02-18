@@ -80,6 +80,7 @@ def write_file(path: str, content: str, force: bool = False) -> dict:
 
         # Generate diff if file exists
         diff_text = None
+        was_new = not p.exists()
         if p.exists():
             old_content = p.read_text(encoding="utf-8", errors="replace")
             diff_lines = list(difflib.unified_diff(
@@ -99,7 +100,7 @@ def write_file(path: str, content: str, force: bool = False) -> dict:
             "path": str(p.resolve()),
             "size": len(content),
             "diff": diff_text,
-            "is_new": diff_text is None and not p.exists()
+            "is_new": was_new
         }
     except Exception as e:
         return {"success": False, "error": str(e)}

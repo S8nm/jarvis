@@ -19,11 +19,6 @@ logger = logging.getLogger("jarvis.tools.claude")
 _client = None
 _async_client = None
 
-# Batch queue
-_batch_queue: list[dict] = []
-_batch_lock = asyncio.Lock()
-_batch_results: dict[str, dict] = {}  # request_id -> result
-
 
 def _get_client():
     global _client

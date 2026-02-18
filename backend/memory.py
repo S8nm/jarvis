@@ -21,6 +21,11 @@ logger = logging.getLogger("jarvis.memory")
 DB_PATH = DATA_DIR / "jarvis.db"
 
 
+def _escape_like(s: str) -> str:
+    """Escape LIKE wildcard characters in user input."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
@@ -55,8 +60,18 @@ def _ensure_tables():
         """)
 
 
+_tables_initialized = False
+
+
+def _ensure_init():
+    global _tables_initialized
+    if not _tables_initialized:
+        _ensure_tables()
+        _tables_initialized = True
+
+
 try:
-    _ensure_tables()
+    _ensure_init()
 except Exception as e:
     logger.error(f"Memory table init failed (will retry on first use): {e}")
 
@@ -65,12 +80,13 @@ except Exception as e:
 
 def store_memory(content: str, category: str = "general", source: str = "conversation", importance: int = 1) -> dict:
     """Store a fact in long-term memory."""
+    _ensure_init()
     now = datetime.now().isoformat()
     with _get_conn() as conn:
         # Check for duplicates (fuzzy match)
         existing = conn.execute(
-            "SELECT id, content FROM memories WHERE content LIKE ? LIMIT 1",
-            (f"%{content[:50]}%",)
+            "SELECT id, content FROM memories WHERE content LIKE ? ESCAPE '\\' LIMIT 1",
+            (f"%{_escape_like(content[:50])}%",)
         ).fetchone()
         if existing:
             # Update existing memory instead of duplicating
@@ -94,13 +110,14 @@ def recall_memories(query: str = "", category: str = None, limit: int = 10, upda
     """Recall relevant memories, sorted by importance and recency.
     Set update_access=False for passive context injection to avoid inflating access counts.
     """
+    _ensure_init()
     with _get_conn() as conn:
         conditions = []
         params = []
 
         if query:
-            conditions.append("content LIKE ?")
-            params.append(f"%{query}%")
+            conditions.append("content LIKE ? ESCAPE '\\'")
+            params.append(f"%{_escape_like(query)}%")
         if category:
             conditions.append("category = ?")
             params.append(category)
@@ -127,6 +144,7 @@ def recall_memories(query: str = "", category: str = None, limit: int = 10, upda
 
 def delete_memory(memory_id: int) -> bool:
     """Delete a memory by ID."""
+    _ensure_init()
     with _get_conn() as conn:
         cur = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         return cur.rowcount > 0
@@ -134,6 +152,7 @@ def delete_memory(memory_id: int) -> bool:
 
 def get_memory_context(limit: int = 5) -> str:
     """Get a formatted string of recent/important memories for LLM context injection."""
+    _ensure_init()
     memories = recall_memories(limit=limit, update_access=False)
     if not memories:
         return ""
@@ -174,6 +193,7 @@ def summarize_conversation(messages: list[dict], max_messages: int = 20) -> Opti
 
 def store_summary(summary: str, message_count: int, topics: list[str] = None):
     """Store a conversation summary."""
+    _ensure_init()
     now = datetime.now().isoformat()
     with _get_conn() as conn:
         conn.execute(
@@ -186,6 +206,7 @@ def store_summary(summary: str, message_count: int, topics: list[str] = None):
 
 def get_recent_summaries(limit: int = 3) -> list[dict]:
     """Get recent conversation summaries for context."""
+    _ensure_init()
     with _get_conn() as conn:
         rows = conn.execute(
             "SELECT * FROM conversation_summaries ORDER BY created_at DESC LIMIT ?",
@@ -227,6 +248,7 @@ def build_extraction_prompt(user_message: str, assistant_response: str) -> str:
 
 def get_memory_summary() -> dict:
     """Get memory stats for the dashboard."""
+    _ensure_init()
     with _get_conn() as conn:
         total = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
         categories = conn.execute(

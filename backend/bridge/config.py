@@ -12,6 +12,7 @@ if not isinstance(_pp, dict):
 PERSONAPLEX_HOST = _pp.get("host", "localhost")
 PERSONAPLEX_PORT = _pp.get("port", 8998)
 PERSONAPLEX_SSL = _pp.get("ssl", True)
+PERSONAPLEX_SSL_CERT = _pp.get("ssl_cert_path", "")
 
 # Bridge proxy
 BRIDGE_PORT = _pp.get("bridge_port", 8999)

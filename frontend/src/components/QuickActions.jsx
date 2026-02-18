@@ -13,12 +13,14 @@ const QUICK_COMMANDS = [
  * QuickActions — Row of shortcut buttons for common commands.
  * Clicking a button sends it as text input to the backend.
  */
-export default function QuickActions({ sendText, disabled }) {
+export default function QuickActions({ sendText, populateInput, disabled }) {
     const handleClick = (cmd) => {
         if (disabled) return;
-        // If command ends with a space, it's a prompt — put in input instead
-        if (cmd.endsWith(' ')) return; // Could be extended to prefill input
-        sendText(cmd);
+        if (cmd.endsWith(' ') && populateInput) {
+            populateInput(cmd);  // Prompt-style: populate input for user to complete
+        } else {
+            sendText(cmd);
+        }
     };
 
     return (

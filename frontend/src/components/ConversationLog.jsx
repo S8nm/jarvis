@@ -34,7 +34,7 @@ const ConversationLog = memo(function ConversationLog({ conversation, streamingT
                 )}
 
                 {conversation.map((msg, i) => (
-                    <div key={msg.timestamp ? `${msg.timestamp}-${i}` : i} className={`message ${msg.role}`} role="article">
+                    <div key={`msg-${msg.timestamp || 'no-ts'}-${i}`} className={`message ${msg.role}`} role="article">
                         <div className="message-bubble">
                             {msg.role === 'assistant' ? formatMessage(msg.content) : msg.content}
                         </div>

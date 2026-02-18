@@ -1,6 +1,5 @@
 import { memo } from 'react';
-import { useConversation } from '../contexts/JarvisContext';
-import { useSystem } from '../contexts/JarvisContext';
+import { useConversation, useSystem } from '../contexts/JarvisContext';
 import ServicesWidget from './ServicesWidget';
 import GpuMonitor from './GpuMonitor';
 import TranscriptPanel from './TranscriptPanel';

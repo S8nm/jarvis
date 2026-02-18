@@ -412,3 +412,21 @@ body {
     transform: scale(1.05);
   }
 }
+
+/* Skip-to-content accessibility link */
+.skip-to-content {
+    position: absolute;
+    left: -9999px;
+    top: auto;
+    z-index: 10000;
+    padding: 8px 16px;
+    background: var(--bg-primary);
+    color: var(--neon-cyan);
+    border: 1px solid var(--neon-cyan);
+    text-decoration: none;
+    font-family: var(--font-mono);
+}
+.skip-to-content:focus {
+    left: 16px;
+    top: 16px;
+}

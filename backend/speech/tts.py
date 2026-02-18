@@ -172,23 +172,21 @@ class TextToSpeech:
         """Synthesize using Windows SAPI (fallback)."""
         try:
             import subprocess
-            # Sanitize text for PowerShell (escape single quotes)
-            safe_text = text.replace("'", "''").replace('"', '`"')
-            # Truncate very long text for SAPI
-            if len(safe_text) > 500:
-                safe_text = safe_text[:497] + "..."
-
-            cmd = [
-                'powershell', '-Command',
-                f"Add-Type -AssemblyName System.Speech; "
-                f"$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-                f"$synth.SelectVoiceByHints('Male', 30, 0, 'en-GB'); "
-                f"$synth.Rate = 1; "
-                f"$synth.Speak('{safe_text}')"
-            ]
-            subprocess.run(cmd, timeout=30, capture_output=True)
+            safe_text = text[:500]
+            script = (
+                "Add-Type -AssemblyName System.Speech; "
+                "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                "$synth.SelectVoiceByHints('Male', 30, 0, 'en-GB'); "
+                "$synth.Rate = 1; "
+                "$text = [Console]::In.ReadToEnd(); "
+                "$synth.Speak($text)"
+            )
+            subprocess.run(
+                ['powershell', '-Command', script],
+                input=safe_text, capture_output=True, text=True, timeout=30
+            )
             logger.info("Spoke via Windows SAPI")
-            return None  # SAPI plays directly, no bytes returned
+            return None
         except Exception as e:
             logger.warning(f"Windows SAPI failed: {e}")
             return self._synthesize_silent(text)
