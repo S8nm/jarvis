@@ -5,6 +5,7 @@ Supports optional config.json override for user-customizable settings.
 Inspired by Microsoft JARVIS's externalized YAML configuration pattern.
 """
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -28,8 +29,10 @@ _config_path = PROJECT_ROOT / "config.json"
 if _config_path.exists():
     try:
         _user_config = json.loads(_config_path.read_text(encoding="utf-8"))
-    except Exception:
-        pass  # Fall back to defaults
+    except json.JSONDecodeError as e:
+        logging.getLogger("jarvis.config").warning(f"config.json has invalid JSON (using defaults): {e}")
+    except Exception as e:
+        logging.getLogger("jarvis.config").warning(f"Failed to load config.json (using defaults): {e}")
 
 
 def _cfg(key: str, default):
@@ -89,3 +92,14 @@ VISION_RESOLUTION = tuple(_cfg("vision_resolution", [1280, 720]))
 # ──────────────────────────── Memory ────────────────────────────
 MEMORY_AUTO_EXTRACT = _cfg("memory_auto_extract", True)   # Auto-extract facts from conversations
 MEMORY_MAX_FACTS = _cfg("memory_max_facts", 100)          # Max stored memories before pruning
+
+# ──────────────────────────── Claude API (outsourcing) ────────────────────────────
+ANTHROPIC_API_KEY = _cfg("anthropic_api_key", os.environ.get("ANTHROPIC_API_KEY", ""))
+CLAUDE_MODEL = _cfg("claude_model", "claude-sonnet-4-5-20250929")
+CLAUDE_MAX_TOKENS = _cfg("claude_max_tokens", 4096)
+
+# ──────────────────────────── Telegram ────────────────────────────
+_telegram_cfg = _cfg("telegram", {})
+TELEGRAM_BOT_TOKEN = _telegram_cfg.get("bot_token", "") if isinstance(_telegram_cfg, dict) else ""
+TELEGRAM_ALLOWED_USERS = _telegram_cfg.get("allowed_user_ids", []) if isinstance(_telegram_cfg, dict) else []
+TELEGRAM_NOTIFY_ON_START = _telegram_cfg.get("notify_on_start", True) if isinstance(_telegram_cfg, dict) else True

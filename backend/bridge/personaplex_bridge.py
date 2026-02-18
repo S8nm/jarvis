@@ -30,6 +30,7 @@ from bridge.config import (
     PERSONAPLEX_HOST,
     PERSONAPLEX_PORT,
     PERSONAPLEX_SSL,
+    PERSONAPLEX_SSL_CERT,
     BRIDGE_PORT,
     VOICE_PROMPT,
     TEXT_PERSONA,
@@ -132,8 +133,17 @@ class PersonaPlexBridge:
         ssl_ctx = None
         if PERSONAPLEX_SSL:
             ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE  # Self-signed cert
+            if PERSONAPLEX_SSL_CERT:
+                import os
+                if os.path.exists(PERSONAPLEX_SSL_CERT):
+                    ssl_ctx = ssl.create_default_context(cafile=PERSONAPLEX_SSL_CERT)
+                else:
+                    logger.warning(f"PersonaPlex SSL cert not found: {PERSONAPLEX_SSL_CERT}, using system trust store")
+            else:
+                # Local self-signed: disable verification (logged as warning)
+                ssl_ctx.check_hostname = False
+                ssl_ctx.verify_mode = ssl.CERT_NONE
+                logger.warning("PersonaPlex SSL: No cert path configured, verification disabled for self-signed cert")
 
         try:
             session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
@@ -141,6 +151,7 @@ class PersonaPlexBridge:
             logger.info("Connected to PersonaPlex server")
         except Exception as e:
             logger.error(f"Failed to connect to PersonaPlex: {e}")
+            await session.close()
             await client_ws.close(message=b"PersonaPlex server unreachable")
             return client_ws
 

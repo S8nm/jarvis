@@ -41,7 +41,7 @@ connected_clients: Set[WebSocket] = set()
 async def broadcast(message: str):
     """Broadcast a message to all connected WebSocket clients."""
     disconnected = set()
-    for ws in connected_clients:
+    for ws in list(connected_clients):
         try:
             await ws.send_text(message)
         except Exception:

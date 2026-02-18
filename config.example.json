@@ -1,5 +1,5 @@
 {
-    "_comment": "J.A.R.V.I.S. Configuration — Edit these values to customize your setup",
+    "_comment": "J.A.R.V.I.S. Configuration — Copy to config.json and edit values",
 
     "mic_device": 1,
     "audio_gain": 10.0,
@@ -19,6 +19,7 @@
 
     "anthropic_api_key": "",
     "claude_model": "claude-sonnet-4-5-20250929",
+    "claude_max_tokens": 4096,
 
     "router": {
         "enabled": true,
@@ -49,25 +50,26 @@
     },
 
     "personaplex": {
-        "enabled": true,
+        "enabled": false,
         "host": "localhost",
         "port": 8998,
         "ssl": true,
+        "ssl_cert_path": "",
         "bridge_port": 8999,
         "voice": "NATM0.pt",
-        "persona": "You are JARVIS, a highly capable AI assistant. You speak with a British accent and are knowledgeable, witty, and efficient. Be concise and helpful."
+        "persona": "You are JARVIS, a highly capable AI assistant inspired by Iron Man's AI butler. You speak with a calm, measured British tone. You are knowledgeable, witty, and efficient. Address the user as 'sir'. Keep responses concise — 1 to 3 sentences unless asked for detail. You have access to tools for weather, notes, calendar, file management, Raspberry Pi control, and memory. When the user asks you to do something that requires a tool, acknowledge the request naturally — your backend system will handle the execution. Don't make up data you don't have."
     },
 
     "telegram": {
-        "bot_token": "8598955435:AAFgSSxikIfAXf2TponlybLSy_Qnu3_NwtY",
-        "api_id": 30745628,
-        "api_hash": "ad244f70a12fb829021bca2d8c50db4e",
-        "allowed_user_ids": [7679851764],
+        "bot_token": "",
+        "api_id": 0,
+        "api_hash": "",
+        "allowed_user_ids": [],
         "notify_on_start": true
     },
 
     "pi": {
-        "host": "192.168.8.197",
+        "host": "",
         "user": "pi",
         "ssh_key": "~/.ssh/jarvis_pi",
         "ssh_port": 22,

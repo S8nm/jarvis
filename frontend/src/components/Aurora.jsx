@@ -130,16 +130,22 @@ export default function Aurora({
     ctn.appendChild(gl.canvas);
 
     let animateId = 0;
+    let prevColorStops = null;
+    let cachedColorValues = null;
     const update = (t) => {
       animateId = requestAnimationFrame(update);
       const p = propsRef.current;
       program.uniforms.uTime.value = t * 0.001 * p.speed * 0.1;
       program.uniforms.uAmplitude.value = p.amplitude;
       program.uniforms.uBlend.value = p.blend;
-      program.uniforms.uColorStops.value = p.colorStops.map(hex => {
-        const c = new Color(hex);
-        return [c.r, c.g, c.b];
-      });
+      if (p.colorStops !== prevColorStops) {
+        prevColorStops = p.colorStops;
+        cachedColorValues = p.colorStops.map(hex => {
+          const c = new Color(hex);
+          return [c.r, c.g, c.b];
+        });
+      }
+      program.uniforms.uColorStops.value = cachedColorValues;
       renderer.render({ scene: mesh });
     };
     animateId = requestAnimationFrame(update);

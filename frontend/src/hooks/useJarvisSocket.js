@@ -60,7 +60,7 @@ export function useJarvisSocket() {
         ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data);
-                handleMessage(msg);
+                handleMessageRef.current(msg);
             } catch (e) {
                 console.warn('[JARVIS] Failed to parse message:', e);
             }
@@ -111,6 +111,8 @@ export function useJarvisSocket() {
             // Silent — Pi may not be configured
         }
     }, []);
+
+    const handleMessageRef = useRef(null);
 
     const handleMessage = useCallback((msg) => {
         const { type, data } = msg;
@@ -267,6 +269,8 @@ export function useJarvisSocket() {
                 console.log('[JARVIS] Unknown message type:', type, data);
         }
     }, []);
+
+    handleMessageRef.current = handleMessage;
 
     // Connect on mount
     useEffect(() => {

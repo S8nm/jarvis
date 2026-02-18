@@ -12,7 +12,7 @@ Interface parity with LLMClient:
 import logging
 from typing import AsyncGenerator
 
-from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_CONTEXT_MESSAGES
+from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_MAX_TOKENS, MAX_CONTEXT_MESSAGES
 from llm.prompts import JARVIS_SYSTEM_PROMPT
 
 logger = logging.getLogger("jarvis.llm.claude")
@@ -115,25 +115,25 @@ class ClaudeLLMClient:
         try:
             async with client.messages.stream(
                 model=self.model,
-                max_tokens=2048,
+                max_tokens=CLAUDE_MAX_TOKENS,
                 system=system,
                 messages=messages,
             ) as stream:
                 async for text in stream.text_stream:
                     yield text
 
-            # Get usage for cost tracking
-            response = await stream.get_final_message()
-            if self._cost_tracker and response.usage:
-                self._cost_tracker.log_usage(
-                    model=response.model,
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
-                    cache_read=getattr(response.usage, "cache_read_input_tokens", 0),
-                    cache_creation=getattr(response.usage, "cache_creation_input_tokens", 0),
-                    request_type="stream",
-                    summary="router-direct",
-                )
+                # Get usage for cost tracking (inside async with to avoid stale stream)
+                response = await stream.get_final_message()
+                if self._cost_tracker and response.usage:
+                    self._cost_tracker.log_usage(
+                        model=response.model,
+                        input_tokens=response.usage.input_tokens,
+                        output_tokens=response.usage.output_tokens,
+                        cache_read=getattr(response.usage, "cache_read_input_tokens", 0),
+                        cache_creation=getattr(response.usage, "cache_creation_input_tokens", 0),
+                        request_type="stream",
+                        summary="router-direct",
+                    )
             self._error_count = 0
 
         except Exception as e:

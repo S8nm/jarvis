@@ -41,12 +41,12 @@ class SlidingWindowRateLimiter:
     def __init__(self):
         self._windows: dict[str, deque] = {}
         self._limits: dict[str, int] = dict(_DEFAULT_LIMITS)
-        self._window_sec: float = _DEFAULT_WINDOW_SEC
+        self._window_secs: dict[str, float] = {}
 
     def configure(self, source: str, max_requests: int, window_sec: float = 60.0):
         """Set rate limit for a source."""
         self._limits[source] = max_requests
-        self._window_sec = window_sec
+        self._window_secs[source] = window_sec
 
     def check(self, source: str) -> tuple[bool, dict]:
         """
@@ -57,7 +57,8 @@ class SlidingWindowRateLimiter:
         """
         now = time.monotonic()
         limit = self._limits.get(source, 15)  # default 15/min
-        cutoff = now - self._window_sec
+        window_sec = self._window_secs.get(source, _DEFAULT_WINDOW_SEC)
+        cutoff = now - window_sec
 
         if source not in self._windows:
             self._windows[source] = deque()
@@ -69,9 +70,9 @@ class SlidingWindowRateLimiter:
             window.popleft()
 
         if len(window) >= limit:
-            retry_after = (window[0] + self._window_sec) - now
+            retry_after = (window[0] + window_sec) - now
             logger.warning(
-                f"Rate limited: {source} ({len(window)}/{limit} in {self._window_sec}s)"
+                f"Rate limited: {source} ({len(window)}/{limit} in {window_sec}s)"
             )
             return False, {
                 "remaining": 0,
@@ -92,7 +93,7 @@ class SlidingWindowRateLimiter:
         now = time.monotonic()
         status = {}
         for source, window in self._windows.items():
-            cutoff = now - self._window_sec
+            cutoff = now - self._window_secs.get(source, _DEFAULT_WINDOW_SEC)
             active = sum(1 for t in window if t >= cutoff)
             limit = self._limits.get(source, 15)
             status[source] = {

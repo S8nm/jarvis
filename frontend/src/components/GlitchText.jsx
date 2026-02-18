@@ -22,7 +22,7 @@ export default function GlitchText({
     <span
       className={`glitch-text ${enableOnHover ? 'glitch-hover-only' : ''} ${className}`}
       style={inlineStyles}
-      data-text={children}
+      data-text={typeof children === 'string' ? children : ''}
     >
       {children}
     </span>

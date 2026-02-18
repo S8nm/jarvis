@@ -1,7 +1,7 @@
 import { Component } from 'react';
 
 class ErrorBoundary extends Component {
-    state = { hasError: false, error: null };
+    state = { hasError: false, error: null, retryCount: 0 };
 
     static getDerivedStateFromError(error) {
         return { hasError: true, error };
@@ -22,12 +22,18 @@ class ErrorBoundary extends Component {
                     <p style={{ color: 'var(--text-dim)', margin: 'var(--gap-md) 0', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
                         {this.state.error?.message || 'Module offline'}
                     </p>
-                    <button
-                        className="hud-control-btn"
-                        onClick={() => this.setState({ hasError: false, error: null })}
-                    >
-                        ↺ RETRY
-                    </button>
+                    {this.state.retryCount < 3 ? (
+                        <button
+                            className="hud-control-btn"
+                            onClick={() => this.setState(s => ({
+                                hasError: false, error: null, retryCount: s.retryCount + 1
+                            }))}
+                        >
+                            ↺ RETRY
+                        </button>
+                    ) : (
+                        <p style={{color: 'var(--text-secondary)', marginTop: '12px'}}>Module permanently offline. Please reload the page.</p>
+                    )}
                 </div>
             );
         }

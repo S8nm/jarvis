@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+import { useRef, useEffect } from 'react';
 
 const STATES = {
     IDLE:      { color: [0, 170, 255], pulse: 0.5,  particles: 20, speed: 0.3, label: '● STANDBY' },

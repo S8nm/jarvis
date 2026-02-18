@@ -37,7 +37,7 @@ const ActivityTabs = memo(function ActivityTabs() {
     if (toolActivity) {
         tabs.push({
             id: 'tool',
-            title: `TOOL: ${toolActivity.tool.toUpperCase()}`,
+            title: `TOOL: ${(toolActivity.tool || 'UNKNOWN').toUpperCase()}`,
             type: 'tool',
             content: toolActivity,
             status: toolActivity.status === 'executing' ? 'executing' : 'completed'
