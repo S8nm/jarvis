@@ -9,6 +9,10 @@ import encoderPath from 'opus-recorder/dist/encoderWorker.min.js?url';
  * audio playback (Opus decoding via WASM worker + AudioWorklet),
  * and text token display.
  *
+ * v2 additions:
+ * - Auto-reconnect on unexpected disconnect (max 3 attempts, 3s delay)
+ * - Intentional disconnect flag to prevent reconnect on user-initiated close
+ *
  * Protocol (matches reference client exactly):
  *   0x00 = handshake (server → client, triggers recording start)
  *   0x01 = audio (bidirectional, Opus Ogg pages)
@@ -20,6 +24,8 @@ import encoderPath from 'opus-recorder/dist/encoderWorker.min.js?url';
 const BRIDGE_URL = 'ws://localhost:8999/api/chat';
 const DECODER_SAMPLE_RATE = 24000;
 const ENCODER_SAMPLE_RATE = 24000;
+const MAX_RECONNECT_ATTEMPTS = 3;
+const RECONNECT_DELAY_MS = 3000;
 
 // Minimal valid Ogg BOS page with OpusHead header (mono, 48kHz)
 // Triggers the decoder worker's internal init to create buffers
@@ -60,6 +66,9 @@ export function usePersonaPlex() {
     const handshakeReceivedRef = useRef(false);
     const decoderReadyRef = useRef(false);
     const handshakeTimeoutRef = useRef(null);
+    const reconnectAttemptsRef = useRef(0);
+    const reconnectTimerRef = useRef(null);
+    const intentionalDisconnectRef = useRef(false);
 
     // --- Decode incoming audio (server → speakers) ---
     const decodeAudio = useCallback((data) => {
@@ -176,6 +185,7 @@ export function usePersonaPlex() {
             case 0x00: // Handshake — server is ready
                 console.log('[PersonaPlex] Handshake received — server ready');
                 handshakeReceivedRef.current = true;
+                reconnectAttemptsRef.current = 0; // Reset on successful handshake
                 if (handshakeTimeoutRef.current) {
                     clearTimeout(handshakeTimeoutRef.current);
                     handshakeTimeoutRef.current = null;
@@ -204,11 +214,57 @@ export function usePersonaPlex() {
         }
     }, [decodeAudio, maybeStartRecording]);
 
+    // --- Cleanup (internal, does NOT trigger reconnect) ---
+    const cleanupInternal = useCallback(() => {
+        cleaningUpRef.current = true;
+        handshakeReceivedRef.current = false;
+        decoderReadyRef.current = false;
+
+        if (handshakeTimeoutRef.current) {
+            clearTimeout(handshakeTimeoutRef.current);
+            handshakeTimeoutRef.current = null;
+        }
+
+        stopRecording();
+
+        if (wsRef.current) {
+            wsRef.current.onclose = null;
+            wsRef.current.onmessage = null;
+            wsRef.current.onerror = null;
+            if (wsRef.current.readyState === WebSocket.OPEN ||
+                wsRef.current.readyState === WebSocket.CONNECTING) {
+                wsRef.current.close();
+            }
+            wsRef.current = null;
+        }
+
+        if (decoderWorkerRef.current) {
+            decoderWorkerRef.current.terminate();
+            decoderWorkerRef.current = null;
+        }
+
+        if (workletRef.current) {
+            workletRef.current.disconnect();
+            workletRef.current = null;
+        }
+
+        if (audioCtxRef.current) {
+            audioCtxRef.current.close().catch(() => {});
+            audioCtxRef.current = null;
+        }
+
+        setIsVoiceActive(false);
+        cleaningUpRef.current = false;
+    }, [stopRecording]);
+
     // --- Connect ---
+    const connectRef = useRef(null);
+
     const connect = useCallback(async () => {
         if (wsRef.current) return;
         if (cleaningUpRef.current) return;
 
+        intentionalDisconnectRef.current = false;
         setVoiceStatus('connecting');
         setPersonaplexText('');
         handshakeReceivedRef.current = false;
@@ -268,7 +324,8 @@ export function usePersonaPlex() {
                 handshakeTimeoutRef.current = setTimeout(() => {
                     if (!handshakeReceivedRef.current) {
                         console.error('[PersonaPlex] Handshake timeout — server did not respond in 15s');
-                        cleanup();
+                        cleanupInternal();
+                        setVoiceStatus('disconnected');
                     }
                 }, 15000);
             };
@@ -280,7 +337,24 @@ export function usePersonaPlex() {
             ws.onclose = (event) => {
                 console.log('[PersonaPlex] WebSocket closed:', event.code, event.reason);
                 if (!cleaningUpRef.current) {
-                    cleanup();
+                    cleanupInternal();
+
+                    // Auto-reconnect if not intentional and under retry limit
+                    if (!intentionalDisconnectRef.current &&
+                        reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+                        reconnectAttemptsRef.current += 1;
+                        const attempt = reconnectAttemptsRef.current;
+                        console.log(`[PersonaPlex] Auto-reconnecting (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})...`);
+                        setVoiceStatus('reconnecting');
+
+                        reconnectTimerRef.current = setTimeout(() => {
+                            if (connectRef.current && !intentionalDisconnectRef.current) {
+                                connectRef.current();
+                            }
+                        }, RECONNECT_DELAY_MS);
+                    } else {
+                        setVoiceStatus('disconnected');
+                    }
                 }
             };
 
@@ -296,65 +370,38 @@ export function usePersonaPlex() {
         } catch (err) {
             console.error('[PersonaPlex] Connection failed:', err);
             setVoiceStatus('disconnected');
-            cleanup();
+            cleanupInternal();
         }
-    }, [handleBinaryMessage, onDecoderMessage, startRecording, maybeStartRecording]);
+    }, [handleBinaryMessage, onDecoderMessage, startRecording, maybeStartRecording, cleanupInternal]);
 
-    // --- Cleanup ---
-    const cleanup = useCallback(() => {
-        cleaningUpRef.current = true;
-        handshakeReceivedRef.current = false;
-        decoderReadyRef.current = false;
+    // Keep connectRef in sync so reconnect timer can call latest connect
+    connectRef.current = connect;
 
-        if (handshakeTimeoutRef.current) {
-            clearTimeout(handshakeTimeoutRef.current);
-            handshakeTimeoutRef.current = null;
-        }
-
-        stopRecording();
-
-        if (wsRef.current) {
-            wsRef.current.onclose = null;
-            wsRef.current.onmessage = null;
-            wsRef.current.onerror = null;
-            if (wsRef.current.readyState === WebSocket.OPEN ||
-                wsRef.current.readyState === WebSocket.CONNECTING) {
-                wsRef.current.close();
-            }
-            wsRef.current = null;
-        }
-
-        if (decoderWorkerRef.current) {
-            decoderWorkerRef.current.terminate();
-            decoderWorkerRef.current = null;
-        }
-
-        if (workletRef.current) {
-            workletRef.current.disconnect();
-            workletRef.current = null;
-        }
-
-        if (audioCtxRef.current) {
-            audioCtxRef.current.close().catch(() => {});
-            audioCtxRef.current = null;
-        }
-
-        setVoiceStatus('disconnected');
-        setIsVoiceActive(false);
-        cleaningUpRef.current = false;
-    }, [stopRecording]);
-
+    // --- Public disconnect (intentional, no reconnect) ---
     const disconnect = useCallback(() => {
-        cleanup();
-    }, [cleanup]);
+        intentionalDisconnectRef.current = true;
+        reconnectAttemptsRef.current = 0;
+        if (reconnectTimerRef.current) {
+            clearTimeout(reconnectTimerRef.current);
+            reconnectTimerRef.current = null;
+        }
+        cleanupInternal();
+        setVoiceStatus('disconnected');
+    }, [cleanupInternal]);
 
     const clearText = useCallback(() => {
         setPersonaplexText('');
     }, []);
 
     useEffect(() => {
-        return () => { cleanup(); };
-    }, [cleanup]);
+        return () => {
+            intentionalDisconnectRef.current = true;
+            if (reconnectTimerRef.current) {
+                clearTimeout(reconnectTimerRef.current);
+            }
+            cleanupInternal();
+        };
+    }, [cleanupInternal]);
 
     return {
         voiceStatus,

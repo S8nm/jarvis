@@ -1,8 +1,11 @@
 """
-PersonaPlex Bridge — Intent Detection (v2)
+PersonaPlex Bridge — Intent Detection (v2.1)
 Detects tool-calling intent from USER input (not JARVIS output).
 Uses strict multi-word phrases to avoid false positives.
-Falls back to Ollama only when a high-confidence phrase is detected.
+
+v2.1 additions:
+- Fast-path direct tool mapping for unambiguous phrases (skips Ollama entirely)
+- Ollama only used for ambiguous "general" category or complex argument extraction
 """
 import json
 import logging
@@ -36,6 +39,58 @@ _INTENT_PHRASES = {
 
 # Compiled patterns for speed
 _COMPILED_INTENTS = [(re.compile(pat, re.IGNORECASE), cat) for pat, cat in _INTENT_PHRASES.items()]
+
+
+# ──────────────────────────── Fast-path direct mapping ────────────────────────────
+# For unambiguous phrases, map directly to tool + args without Ollama.
+# Returns (tool_name, args_dict) or None.
+
+_FAST_PATH_PATTERNS = [
+    # Weather — current
+    (re.compile(r"\b(?:what(?:'s| is) the weather|how(?:'s| is) (?:it |the weather )?outside|weather today|temperature outside)\b", re.IGNORECASE),
+     "weather.current", {}),
+    # Weather — forecast
+    (re.compile(r"\b(?:weather (?:forecast|tomorrow|this week)|forecast)\b", re.IGNORECASE),
+     "weather.forecast", {"days": 3}),
+    # Calendar — today
+    (re.compile(r"\b(?:what(?:'s| is) on my (?:calendar|schedule)|my schedule today|do i have (?:any )?(?:meetings|events))\b", re.IGNORECASE),
+     "calendar.today", {}),
+    # Notes — list
+    (re.compile(r"\b(?:(?:list|show|my) (?:all )?notes)\b", re.IGNORECASE),
+     "notes.list", {}),
+    # Pi — ping
+    (re.compile(r"\b(?:is the pi (?:online|running|up)|check (?:the )?pi|pi (?:status|health))\b", re.IGNORECASE),
+     "pi.ping", {}),
+    # Pi — system info
+    (re.compile(r"\b(?:pi (?:info|temperature|temp)|raspberry pi status)\b", re.IGNORECASE),
+     "pi.system_info", {"check": "all"}),
+    # Vision — look
+    (re.compile(r"\b(?:look at (?:this|that)|what (?:do you |can you )?see|take a (?:look|photo|picture)|activate (?:the )?camera)\b", re.IGNORECASE),
+     "vision.look", {"prompt": "Describe what you see"}),
+    # Memory — recall (general)
+    (re.compile(r"\b(?:do you remember|what do you (?:know|remember) about)\b", re.IGNORECASE),
+     None, None),  # None = needs Ollama to extract query
+    # Memory — store
+    (re.compile(r"\b(?:remember (?:that|this))\b", re.IGNORECASE),
+     None, None),  # None = needs Ollama to extract content
+    # Files — list
+    (re.compile(r"\b(?:list (?:my )?files)\b", re.IGNORECASE),
+     "files.list", {"path": "."}),
+]
+
+
+def try_fast_path(user_text: str) -> dict | None:
+    """Try to map user text directly to a tool call without Ollama.
+
+    Returns dict with 'tool' and 'args' if a fast match is found, None otherwise.
+    """
+    for pattern, tool, args in _FAST_PATH_PATTERNS:
+        if pattern.search(user_text):
+            if tool is None:
+                # Needs Ollama for argument extraction
+                return None
+            logger.info(f"Fast-path match: {tool} (skipping Ollama)")
+            return {"tool": tool, "args": args or {}}
 
 
 def detect_tool_intent(user_text: str, jarvis_text: str = "") -> str | None:
@@ -73,7 +128,10 @@ def detect_tool_intent(user_text: str, jarvis_text: str = "") -> str | None:
 
 
 async def extract_tool_call(user_text: str, category: str = "general") -> dict | None:
-    """Use Ollama to extract a structured tool call from user's natural language.
+    """Extract a structured tool call from user's natural language.
+
+    First tries fast-path regex mapping (instant, no LLM).
+    Falls back to Ollama for complex/ambiguous requests.
 
     Args:
         user_text: What the USER said (not what JARVIS said)
@@ -82,6 +140,11 @@ async def extract_tool_call(user_text: str, category: str = "general") -> dict |
     Returns:
         Dict with 'tool' and 'args' keys, or None if no tool call detected
     """
+    # Fast path — try direct mapping first (no Ollama needed)
+    fast_result = try_fast_path(user_text)
+    if fast_result:
+        return fast_result
+
     # Map categories to relevant tools to narrow the LLM's choices
     category_tools = {
         "weather": "weather.current, weather.forecast",

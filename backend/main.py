@@ -85,9 +85,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Vision Module unavailable: {e}")
 
-    # Start PersonaPlex Bridge (full-duplex voice proxy)
+    # Start PersonaPlex Server + Bridge (full-duplex voice proxy)
     bridge = None
+    pp_launcher = None
     if PERSONAPLEX_ENABLED:
+        # Auto-start PersonaPlex server if not already running
+        try:
+            from bridge.launcher import PersonaPlexLauncher
+            pp_launcher = PersonaPlexLauncher()
+            pp_ready = await pp_launcher.ensure_running(timeout=120)
+            if pp_ready:
+                logger.info("PersonaPlex server is ready")
+            else:
+                logger.warning("PersonaPlex server not available — bridge will retry on client connect")
+        except Exception as e:
+            logger.warning(f"PersonaPlex launcher error: {e}")
+
+        # Start the bridge proxy regardless — it handles retries to PersonaPlex
         try:
             from bridge.personaplex_bridge import start_bridge
             from tools.registry import execute_tool
@@ -146,6 +160,8 @@ async def lifespan(app: FastAPI):
         await telegram_bot.stop()
     if bridge:
         await bridge.stop()
+    if pp_launcher:
+        await pp_launcher.stop()
     await agent._claude_client.close()
     agent.stop_wake_detection()
     logger.info("Goodbye, sir.")
