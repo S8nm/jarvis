@@ -145,15 +145,34 @@ class PersonaPlexBridge:
                 ssl_ctx.verify_mode = ssl.CERT_NONE
                 logger.warning("PersonaPlex SSL: No cert path configured, verification disabled for self-signed cert")
 
-        try:
-            session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
-            server_ws = await session.ws_connect(server_url, ssl=ssl_ctx)
-            logger.info("Connected to PersonaPlex server")
-        except Exception as e:
-            logger.error(f"Failed to connect to PersonaPlex: {e}")
-            await session.close()
-            await client_ws.close(message=b"PersonaPlex server unreachable")
-            return client_ws
+        # Connect to PersonaPlex with retry logic
+        session = None
+        server_ws = None
+        max_retries = 3
+        retry_delays = [1, 3, 5]
+
+        for attempt in range(max_retries):
+            try:
+                session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
+                server_ws = await session.ws_connect(server_url, ssl=ssl_ctx)
+                logger.info(f"Connected to PersonaPlex server (attempt {attempt + 1})")
+                break
+            except Exception as e:
+                logger.warning(f"PersonaPlex connection attempt {attempt + 1}/{max_retries} failed: {e}")
+                if session:
+                    await session.close()
+                    session = None
+                if attempt < max_retries - 1:
+                    delay = retry_delays[attempt]
+                    await self._notify_frontend("personaplex_status", {
+                        "active": True, "status": "reconnecting",
+                        "message": f"Retrying in {delay}s... (attempt {attempt + 2}/{max_retries})"
+                    })
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"Failed to connect to PersonaPlex after {max_retries} attempts")
+                    await client_ws.close(message=b"PersonaPlex server unreachable after retries")
+                    return client_ws
 
         # Shared state for this connection
         close_event = asyncio.Event()
@@ -382,25 +401,123 @@ class PersonaPlexBridge:
 
 
 def _format_tool_result(tool_name: str, result: dict, max_len: int = 500) -> str:
-    """Format a tool result as natural text for display. Truncates to max_len."""
+    """Format a tool result as natural conversational text.
+
+    Instead of raw JSON, produces speech-friendly summaries that PersonaPlex
+    can display and the user can read naturally.
+    """
     if "error" in result:
-        return f" [Tool {tool_name} error: {result['error'][:200]}]"
+        return f" I encountered an issue with that: {result['error'][:200]}."
 
-    # Try to make the result readable
-    if "result" in result:
-        data = result["result"]
+    data = result.get("result", result)
+
+    # Weather — extract key fields
+    if "weather" in tool_name:
+        if isinstance(data, dict):
+            temp = data.get("temperature", data.get("temp", ""))
+            desc = data.get("description", data.get("condition", data.get("weather", "")))
+            location = data.get("location", data.get("city", ""))
+            humidity = data.get("humidity", "")
+            parts = []
+            if location:
+                parts.append(f"In {location}")
+            if temp:
+                parts.append(f"it's currently {temp}°")
+            if desc:
+                parts.append(f"with {desc.lower()}" if parts else str(desc))
+            if humidity:
+                parts.append(f"Humidity is {humidity}%")
+            if parts:
+                return " " + ". ".join(parts) + "."
         if isinstance(data, str):
-            text = data[:max_len]
-        elif isinstance(data, dict):
-            text = json.dumps(data, indent=None, default=str)[:max_len]
-        else:
-            text = str(data)[:max_len]
-        return f" [{tool_name}: {text}]"
+            return f" {data[:max_len]}"
 
-    # Generic formatting
-    filtered = {k: v for k, v in result.items() if k not in ("elapsed_ms",)}
-    text = json.dumps(filtered, indent=None, default=str)[:max_len]
-    return f" [{tool_name}: {text}]"
+    # Notes — list or confirmation
+    if "notes" in tool_name:
+        if isinstance(data, list):
+            if not data:
+                return " You don't have any notes matching that."
+            count = len(data)
+            preview = ", ".join(
+                n.get("content", str(n))[:60] for n in data[:3]
+            )
+            suffix = f" and {count - 3} more" if count > 3 else ""
+            return f" You have {count} note{'s' if count != 1 else ''}: {preview}{suffix}."
+        if isinstance(data, dict) and "id" in data:
+            return f" Note saved successfully."
+        if isinstance(data, str):
+            return f" {data[:max_len]}"
+
+    # Calendar
+    if "calendar" in tool_name:
+        if isinstance(data, list):
+            if not data:
+                return " Your calendar is clear."
+            count = len(data)
+            events = []
+            for ev in data[:3]:
+                title = ev.get("title", ev.get("summary", "event"))
+                start = ev.get("start_time", ev.get("start", ""))
+                events.append(f"{title} at {start}" if start else title)
+            return f" You have {count} event{'s' if count != 1 else ''}: {'; '.join(events)}."
+        if isinstance(data, str):
+            return f" {data[:max_len]}"
+
+    # Pi status
+    if "pi." in tool_name:
+        if isinstance(data, dict):
+            if "reachable" in data or "online" in data:
+                is_up = data.get("reachable", data.get("online", False))
+                return f" The Raspberry Pi is {'online and responding' if is_up else 'currently unreachable'}."
+            # System info
+            cpu = data.get("cpu_percent", "")
+            mem = data.get("memory_percent", "")
+            temp = data.get("temperature", data.get("cpu_temp", ""))
+            parts = []
+            if cpu:
+                parts.append(f"CPU at {cpu}%")
+            if mem:
+                parts.append(f"memory at {mem}%")
+            if temp:
+                parts.append(f"temperature {temp}°C")
+            if parts:
+                return f" Pi status: {', '.join(parts)}."
+        if isinstance(data, str):
+            return f" {data[:max_len]}"
+
+    # Memory
+    if "memory" in tool_name:
+        if isinstance(data, str):
+            return f" {data[:max_len]}"
+        if isinstance(data, dict):
+            if "stored" in str(data).lower() or "saved" in str(data).lower():
+                return " I've stored that in my memory."
+            if "recalled" in str(data).lower() or "content" in data:
+                content = data.get("content", str(data))
+                return f" From my memory: {str(content)[:max_len]}"
+
+    # Files / scripts
+    if "files" in tool_name or "scripts" in tool_name:
+        if isinstance(data, str):
+            return f" {data[:max_len]}"
+        if isinstance(data, dict):
+            if data.get("is_new"):
+                return f" File created successfully: {data.get('path', 'unknown')}."
+            return f" Done: {json.dumps(data, indent=None, default=str)[:max_len]}"
+
+    # Vision
+    if "vision" in tool_name:
+        if isinstance(data, str):
+            return f" {data[:max_len]}"
+
+    # Generic fallback — still conversational
+    if isinstance(data, str):
+        return f" {data[:max_len]}"
+    if isinstance(data, dict):
+        filtered = {k: v for k, v in data.items() if k not in ("elapsed_ms",)}
+        text = json.dumps(filtered, indent=None, default=str)[:max_len]
+        return f" Result: {text}"
+    return f" Done."
 
 
 async def start_bridge(tool_executor=None, agent=None, broadcast=None, port: int = BRIDGE_PORT):
